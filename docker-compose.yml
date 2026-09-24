@@ -1,0 +1,31 @@
+services:
+  youtube-recap-bot:
+    build: .
+    container_name: youtube-recap-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./assets:/app/assets
+      - workspace:/tmp/youtube_recap
+    environment:
+      - WORKSPACE_ROOT=/tmp/youtube_recap
+      - DATABASE_URL=sqlite+aiosqlite:///./data/bot.db
+    # Resource limits — tune for host
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8G
+        reservations:
+          cpus: "1.0"
+          memory: 1G
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  workspace:

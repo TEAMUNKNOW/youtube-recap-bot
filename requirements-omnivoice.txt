@@ -1,0 +1,4 @@
+# Optional GPU TTS worker dependencies for OmniVoice.
+# Install these only on the dedicated OmniVoice worker.
+omnivoice
+soundfile>=0.12.1

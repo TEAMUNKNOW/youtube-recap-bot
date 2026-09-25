@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio,logging,json
 from pathlib import Path
+import json
 from datetime import datetime,timezone
 from sqlalchemy import select,update
 from bot.config import Settings
@@ -54,8 +55,10 @@ class ShortsManager:
             length=min(chunk,info.duration-start); cp=ws/f"audio_{chunk_no:05d}.mp3"
             await VideoEngine(self.settings).runner.run(["-ss",f"{start:.3f}","-i",str(audio),"-t",f"{length:.3f}","-c:a","copy",str(cp)],label="shorts_audio_chunk")
             tr=await self.transcriber.transcribe(cp)
-            for seg in tr.segments:
-                seg.start+=start; seg.end+=start; segments.append(seg)
+            with (ws/"transcript.jsonl").open("a",encoding="utf-8") as tf:
+                for seg in tr.segments:
+                    seg.start+=start; seg.end+=start; segments.append(seg)
+                    tf.write(json.dumps({"start":seg.start,"end":seg.end,"text":seg.text},ensure_ascii=False)+"\\n")
             cp.unlink(missing_ok=True); start+=length; chunk_no+=1
         mode=p.selection_mode.value; plans=continuous_manifest(info.duration,p.clip_duration,segments,self.settings.shorts_boundary_tolerance_seconds,self.settings.shorts_max_parts) if mode=="CONTINUOUS" else await self._highlight(info.duration,p.clip_duration,segments)
         async with get_session() as s:

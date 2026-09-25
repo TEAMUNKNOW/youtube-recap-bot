@@ -156,6 +156,48 @@ def register_callback_handlers(app: Client) -> None:
 
         settings = get_settings()
 
+        if action in ("nav:mode", "nav:tts", "nav:lang", "nav:partition"):
+            if action == "nav:mode":
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🎬 AI Recap", callback_data=f"{CB_MODE_RECAP}:{task_id}")],
+                    [InlineKeyboardButton("🎞 Transformative Creator Edit", callback_data=f"{CB_MODE_TRANSFORM}:{task_id}")],
+                ])
+                text = f"Task <code>#{task_id}</code>\n\nChoose pipeline:"
+            elif action == "nav:tts":
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Edge TTS", callback_data=f"{CB_TTS_EDGE}:{task_id}")],
+                    [InlineKeyboardButton("ElevenLabs", callback_data=f"{CB_TTS_ELEVEN}:{task_id}")],
+                    [InlineKeyboardButton("OpenAI TTS", callback_data=f"{CB_TTS_OPENAI}:{task_id}")],
+                    [InlineKeyboardButton("◀️ Back", callback_data=f"nav:mode:{task_id}")],
+                ])
+                text = f"Task <code>#{task_id}</code>\n\nChoose voice provider:"
+            elif action == "nav:lang":
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Hindi", callback_data=f"{CB_LANG_HI}:{task_id}"), InlineKeyboardButton("English", callback_data=f"{CB_LANG_EN}:{task_id}")],
+                    [InlineKeyboardButton("Bengali", callback_data=f"{CB_LANG_BN}:{task_id}"), InlineKeyboardButton("Spanish", callback_data=f"{CB_LANG_ES}:{task_id}")],
+                    [InlineKeyboardButton("Original Audio", callback_data=f"{CB_LANG_ORIG}:{task_id}")],
+                    [InlineKeyboardButton("◀️ Back", callback_data=f"nav:tts:{task_id}")],
+                ])
+                text = f"Task <code>#{task_id}</code>\n\nChoose language:"
+            else:
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Full Video", callback_data=f"{CB_PART_FULL}:{task_id}")],
+                    [InlineKeyboardButton("Part 1 + Part 2", callback_data=f"{CB_PART_SPLIT}:{task_id}")],
+                    [InlineKeyboardButton("◀️ Back", callback_data=f"nav:lang:{task_id}")],
+                ])
+                text = f"Task <code>#{task_id}</code>\n\nPartition:"
+            await query.message.edit_text(text, reply_markup=kb)
+            await query.answer()
+            return
+
+        if action == "nav:home":
+            await query.message.edit_text(
+                "👋 <b>YouTube Recap & Video Automation</b>\n\nChoose an option below.",
+                reply_markup=main_menu_keyboard(),
+            )
+            await query.answer()
+            return
+
         if action in (CB_RESULT_DETAILS, CB_RESULT_SYNC, CB_RESULT_RAW, CB_RESULT_RETRY, CB_RESULT_BACK):
             if action == CB_RESULT_BACK:
                 await query.message.edit_text(f"✅ <b>Task #{task_id} completed</b>", reply_markup=InlineKeyboardMarkup([

@@ -107,7 +107,35 @@ async def dispatch(client,query):
             await client.shorts_manager.pause(pid); msg="⏸ Paused"
         else:
             await client.shorts_manager.stop(pid); msg="⏹ Stopped"
-        await query.message.edit_text(f"{msg} — Project #{pid}",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📊 Progress",callback_data=f"sf:progress:{pid}")],[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]])); await query.answer(); return
+        await query.message.edit_text(f"{msg} — Project #{pid}",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📊 Progress",callback_data=f"sf:progress:{pid}")],[InlineKeyboardButton("📋 Parts",callback_data=f"sf:parts:{pid}:0")],[InlineKeyboardButton("⏸ Pause",callback_data=f"sf:pause:{pid}"),InlineKeyboardButton("⏹ Stop",callback_data=f"sf:stop:{pid}")],[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]])); await query.answer(); return
+    if len(parts)>=3 and parts[1]=="parts":
+        pid=int(parts[2]); page=int(parts[3]) if len(parts)>3 else 0; p=await _project(pid,uid)
+        if not p: await query.answer("Project not found",show_alert=True); return
+        async with get_session() as s:
+            q=await s.execute(select(ShortClip).where(ShortClip.project_id==pid).order_by(ShortClip.part_number).offset(page*5).limit(5)); clips=q.scalars().all()
+        lines=[f"📋 <b>Project #{pid} Parts</b>"]
+        rows=[]
+        for c in clips:
+            lines.append(f"Part {c.part_number} · {c.source_start:.1f}s→{c.source_end:.1f}s · {c.status.value}")
+            rows.append([InlineKeyboardButton(f"▶️ Part {c.part_number}",callback_data=f"sf:preview:{c.id}")])
+        nav=[]
+        if page>0: nav.append(InlineKeyboardButton("⬅️",callback_data=f"sf:parts:{pid}:{page-1}"))
+        if len(clips)==5: nav.append(InlineKeyboardButton("➡️",callback_data=f"sf:parts:{pid}:{page+1}"))
+        if nav: rows.append(nav)
+        rows.append([InlineKeyboardButton("◀️ Back",callback_data="sf:menu")])
+        await query.message.edit_text("\n".join(lines),reply_markup=InlineKeyboardMarkup(rows)); await query.answer(); return
+    if len(parts)>=3 and parts[1]=="preview":
+        cid=int(parts[2])
+        async with get_session() as s:
+            c=await s.get(ShortClip,cid)
+            p=await s.get(ShortsProject,c.project_id) if c else None
+        if not c or not p or p.user_id!=(await ensure_user(uid)).id or not c.local_path:
+            await query.answer("Preview not available.",show_alert=True); return
+        path=c.local_path
+        if not __import__("pathlib").Path(path).exists(): await query.answer("Rendered file is no longer retained.",show_alert=True); return
+        uploader=getattr(client,"user_client",None) or client
+        await uploader.send_video(query.message.chat.id,path,caption=f"🎬 Part {c.part_number}\n{c.title or ''}",supports_streaming=True)
+        await query.answer(); return
     if len(parts)>=3 and parts[1]=="progress":
         pid=int(parts[2]); p=await _project(pid,uid)
         async with get_session() as s:

@@ -310,6 +310,7 @@ def register_callback_handlers(app: Client) -> None:
                             callback_data=f"{CB_MODE_TRANSFORM}:{task_id}",
                         )
                     ],
+                    [InlineKeyboardButton("◀️ Back", callback_data=f"nav:home:{task_id}")],
                 ]
             )
             await query.message.edit_text(
@@ -348,6 +349,7 @@ def register_callback_handlers(app: Client) -> None:
                             "OpenAI TTS", callback_data=f"{CB_TTS_OPENAI}:{task_id}"
                         )
                     ],
+                    [InlineKeyboardButton("◀️ Back", callback_data=f"nav:mode:{task_id}")],
                 ]
             )
             await query.message.edit_text(
@@ -384,6 +386,7 @@ def register_callback_handlers(app: Client) -> None:
                             "Original Audio", callback_data=f"{CB_LANG_ORIG}:{task_id}"
                         )
                     ],
+                    [InlineKeyboardButton("◀️ Back", callback_data=f"nav:tts:{task_id}")],
                 ]
             )
             await query.message.edit_text(
@@ -430,6 +433,7 @@ def register_callback_handlers(app: Client) -> None:
                             "Part 1 + Part 2", callback_data=f"{CB_PART_SPLIT}:{task_id}"
                         )
                     ],
+                    [InlineKeyboardButton("◀️ Back", callback_data=f"nav:lang:{task_id}")],
                 ]
             )
             await query.message.edit_text(
@@ -468,6 +472,7 @@ def register_callback_handlers(app: Client) -> None:
                             "Both", callback_data=f"{CB_EXPORT_BOTH}:{task_id}"
                         )
                     ],
+                    [InlineKeyboardButton("◀️ Back", callback_data=f"nav:partition:{task_id}")],
                 ]
             )
             await query.message.edit_text(

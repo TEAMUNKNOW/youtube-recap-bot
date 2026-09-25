@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Optional
 
-from sqlalchemy import event, text
+from sqlalchemy import event, text, inspect
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -30,11 +30,11 @@ def _configure_sqlite(dbapi_conn: object, _connection_record: object) -> None:
     cursor.close()
 
 
-async def _sqlite_add_missing_columns(conn) -> None:
-    """Lightweight migrate: ADD COLUMN for new Task fields if missing."""
-    result = await conn.execute(text("PRAGMA table_info(tasks)"))
-    rows = result.fetchall()
-    existing = {row[1] for row in rows}  # column name
+async def _migrate_existing_columns(conn) -> None:
+    """Add schema columns that predate the current model on SQLite/PostgreSQL."""
+    def get_columns(sync_conn):
+        return {col["name"] for col in inspect(sync_conn).get_columns("tasks")}
+    existing = await conn.run_sync(get_columns)
     alters = []
     if "current_stage" not in existing:
         alters.append("ALTER TABLE tasks ADD COLUMN current_stage VARCHAR(64)")
@@ -46,6 +46,11 @@ async def _sqlite_add_missing_columns(conn) -> None:
         alters.append("ALTER TABLE tasks ADD COLUMN voice VARCHAR(64)")
     for sql in alters:
         await conn.execute(text(sql))
+
+
+async def _sqlite_add_missing_columns(conn) -> None:
+    """Backward-compatible alias for the portable migration."""
+    await _migrate_existing_columns(conn)
 
 
 async def init_db(settings: Optional[Settings] = None) -> None:
@@ -71,8 +76,7 @@ async def init_db(settings: Optional[Settings] = None) -> None:
 
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        if settings.database_url.startswith("sqlite"):
-            await _sqlite_add_missing_columns(conn)
+        await _migrate_existing_columns(conn)
 
 
 async def close_db() -> None:

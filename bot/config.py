@@ -94,6 +94,8 @@ class Settings(BaseSettings):
     youtube_oauth_redirect_uri: Optional[str] = None
     shorts_oauth_encryption_key: Optional[str] = None
     shorts_oauth_state_ttl_seconds: int = Field(default=600, ge=60, le=3600)
+    shorts_oauth_bind_host: str = "0.0.0.0"
+    shorts_oauth_bind_port: int = Field(default=8081, ge=1, le=65535)
 
     proxy_url: Optional[str] = None
     cookie_file: Optional[Path] = None

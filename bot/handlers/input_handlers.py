@@ -74,7 +74,8 @@ def register_input_handlers(app: Client) -> None:
                         "✅ I have rights to process this content",
                         callback_data=f"{CB_RIGHTS_ACK}:{task_id}",
                     )
-                ]
+                ],
+                [InlineKeyboardButton("🏠 Back to Home", callback_data="menu:home")],
             ]
         )
         await message.reply_text(
@@ -137,7 +138,8 @@ def register_input_handlers(app: Client) -> None:
                         "✅ I have rights to process this content",
                         callback_data=f"{CB_RIGHTS_ACK}:{task_id}",
                     )
-                ]
+                ],
+                [InlineKeyboardButton("🏠 Back to Home", callback_data="menu:home")],
             ]
         )
         await status.edit_text(

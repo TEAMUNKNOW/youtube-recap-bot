@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Awaitable, Callable, Iterable
+import shutil
 
 
 def split_text(text: str, max_chars: int) -> list[str]:
@@ -95,13 +96,24 @@ async def synthesize_chunked(
             await synthesize_one(chunk, path)
         return path
 
+    tasks = []
     try:
-        parts = await asyncio.gather(*(one(i, chunk) for i, chunk in enumerate(chunks)))
+        tasks = [
+            asyncio.create_task(one(i, chunk), name=f"tts-chunk-{i}")
+            for i, chunk in enumerate(chunks)
+        ]
+        parts = await asyncio.gather(*tasks)
         return await merge_mp3s(parts, output_path)
+    except BaseException:
+        # Stop sibling requests immediately when one chunk fails.
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        raise
     finally:
-        for p in part_dir.glob("*"):
-            p.unlink(missing_ok=True)
-        part_dir.rmdir()
+        shutil.rmtree(part_dir, ignore_errors=True)
 
 
 async def _probe(path: Path) -> float:

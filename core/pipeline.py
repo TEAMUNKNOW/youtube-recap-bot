@@ -168,17 +168,6 @@ class Pipeline:
             narr_dur = float(ctx.tts_result.duration or 0)
             vid_dur = float(ctx.media_info.duration or 0)
 
-            # Long-form narration should cover the full source. A mild time-stretch
-            # (only when within a safe range) prevents the final scene from being
-            # cut off while preserving a natural voice.
-            narration_path = Path(ctx.tts_result.path)
-            if vid_dur >= 15 * 60 and narr_dur > 0:
-                fitted = ws / "narration_fitted.m4a"
-                fitted_path = await self.video.fit_audio_duration(narration_path, fitted, vid_dur)
-                if fitted_path != narration_path:
-                    narration_path = fitted_path
-                    narr_dur = float(await self.video._probe_audio_duration(narration_path))
-
             # AI_RECAP is intentionally shorter than the source. Only transformative
             # mode requires full-duration alignment; do not blindly re-script based
             # on a recap-length narration.
@@ -203,6 +192,14 @@ class Pipeline:
                     provider=tts_provider,
                 )
                 narr_dur = float(ctx.tts_result.duration or 0)
+
+            narration_path = Path(ctx.tts_result.path)
+            if vid_dur >= 15 * 60 and narr_dur > 0:
+                fitted = ws / "narration_fitted.m4a"
+                fitted_path = await self.video.fit_audio_duration(narration_path, fitted, vid_dur)
+                if fitted_path != narration_path:
+                    narration_path = fitted_path
+                    narr_dur = float(await self.video._probe_audio_duration(narration_path))
 
             await self._stage(task_id, "MUTE_VIDEO", 62)
             ctx.muted_video_path = ws / "muted.mp4"

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+import tempfile
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -52,6 +54,11 @@ class Transcriber:
         errors: list[str] = []
         if self.settings.groq_api_key:
             try:
+                # Keep individual uploads comfortably below Groq's file-size limit.
+                # Normal short audio still uses one request; long audio is split
+                # into timestamped chunks and transcribed concurrently.
+                if audio_path.stat().st_size > 18 * 1024 * 1024:
+                    return await self._groq_transcribe_chunked(audio_path, language=language)
                 return await retry_async(self._groq_transcribe, max_attempts=2, audio_path=audio_path, language=language)
             except Exception as exc:
                 logger.warning("Groq transcription failed: %s", exc)
@@ -62,6 +69,127 @@ class Transcriber:
             logger.error("Local transcription failed: %s", exc)
             errors.append(f"local: {exc}")
         raise TranscriptionError("All transcription providers failed: " + "; ".join(errors), retryable=True)
+
+    async def _groq_transcribe_chunked(self, audio_path: Path, language: Optional[str] = None) -> Transcript:
+        """Transcribe long audio in bounded chunks, with up to two requests in parallel."""
+        import subprocess
+
+        # 10 minutes is small enough for reliable uploads while keeping request
+        # overhead reasonable. The source is already compressed to 64 kbps MP3.
+        chunk_seconds = 600.0
+        duration = await self._probe_duration(audio_path)
+        if duration <= chunk_seconds:
+            return await retry_async(
+                self._groq_transcribe,
+                max_attempts=2,
+                audio_path=audio_path,
+                language=language,
+            )
+
+        chunks: list[tuple[int, float, float, Path]] = []
+        temp_dir = Path(tempfile.mkdtemp(prefix="groq_chunks_"))
+        try:
+            count = int(math.ceil(duration / chunk_seconds))
+            for i in range(count):
+                start = i * chunk_seconds
+                length = min(chunk_seconds, duration - start)
+                out = temp_dir / f"chunk_{i:04d}.mp3"
+                cmd = [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                    "-ss", f"{start:.3f}", "-i", str(audio_path),
+                    "-t", f"{length:.3f}", "-ac", "1", "-ar", "16000",
+                    "-c:a", "libmp3lame", "-b:a", "64k", str(out),
+                ]
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                _, err = await proc.communicate()
+                if proc.returncode != 0:
+                    raise TranscriptionError(
+                        f"Failed to create transcription chunk {i + 1}: {err.decode(errors='replace')[-500:]}",
+                        retryable=True,
+                    )
+                chunks.append((i, start, length, out))
+
+            sem = asyncio.Semaphore(2)
+
+            async def one(item: tuple[int, float, float, Path]) -> tuple[int, float, Transcript]:
+                i, start, _, path = item
+                async with sem:
+                    result = await retry_async(
+                        self._groq_transcribe,
+                        max_attempts=2,
+                        audio_path=path,
+                        language=language,
+                    )
+                logger.info("Groq transcription chunk %s/%s complete", i + 1, len(chunks))
+                return i, start, result
+
+            results = await asyncio.gather(*(one(item) for item in chunks))
+            results.sort(key=lambda x: x[0])
+
+            all_segments: list[Segment] = []
+            all_words: list[Word] = []
+            texts: list[str] = []
+            detected_language = "unknown"
+            for _, offset, result in results:
+                detected_language = result.language or detected_language
+                if result.text.strip():
+                    texts.append(result.text.strip())
+                for seg in result.segments:
+                    all_segments.append(
+                        Segment(
+                            id=len(all_segments),
+                            start=seg.start + offset,
+                            end=seg.end + offset,
+                            text=seg.text,
+                            words=[
+                                Word(
+                                    word=w.word,
+                                    start=w.start + offset,
+                                    end=w.end + offset,
+                                    confidence=w.confidence,
+                                )
+                                for w in seg.words
+                            ],
+                            confidence=seg.confidence,
+                        )
+                    )
+                for w in result.words:
+                    all_words.append(
+                        Word(
+                            word=w.word,
+                            start=w.start + offset,
+                            end=w.end + offset,
+                            confidence=w.confidence,
+                        )
+                    )
+
+            return Transcript(
+                language=detected_language,
+                duration=duration,
+                text=" ".join(texts),
+                segments=all_segments,
+                words=all_words,
+                provider="groq",
+            )
+        finally:
+            for p in temp_dir.glob("*"):
+                p.unlink(missing_ok=True)
+            temp_dir.rmdir()
+
+    @staticmethod
+    async def _probe_duration(path: Path) -> float:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", str(path),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        try:
+            return float(stdout.decode().strip())
+        except ValueError:
+            return 0.0
 
     async def _groq_transcribe(self, audio_path: Path, language: Optional[str] = None) -> Transcript:
         import httpx

@@ -98,7 +98,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
         group: list[Word] = []
         char_count = 0
         for w in words:
-            t = (w.text or "").strip()
+            t = (w.word or "").strip()
             if not t:
                 continue
             if group and (char_count + len(t) + 1 > self.max_chars_per_line):
@@ -113,7 +113,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
     def _event(self, group: List[Word]) -> str:
         start = self._ts(group[0].start)
         end = self._ts(group[-1].end)
-        text = " ".join((w.text or "").strip() for w in group)
+        text = " ".join((w.word or "").strip() for w in group)
         text = text.replace("\n", " ").replace("{", "\\{").replace("}", "\\}")
         return f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}"
 

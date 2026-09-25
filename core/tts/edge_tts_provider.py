@@ -11,6 +11,7 @@ from typing import List, Optional
 
 from bot.exceptions import TTSError
 from core.tts.base import BaseTTSProvider, TTSResult, VoiceInfo
+from core.tts.audio_merge import synthesize_chunked
 
 logger = logging.getLogger(__name__)
 
@@ -69,41 +70,48 @@ class EdgeTTSProvider(BaseTTSProvider):
         except ImportError as exc:
             raise TTSError("edge-tts package not installed", retryable=False) from exc
 
-        last_exc: Optional[Exception] = None
-        # NoAudioReceived can be transient; retry each voice before moving on.
-        attempts_per_voice = 2
-        for voice_id in voices_to_try:
-            for attempt in range(1, attempts_per_voice + 1):
-                try:
-                    if output_path.exists():
-                        output_path.unlink(missing_ok=True)
-                    communicate = edge_tts.Communicate(cleaned, voice_id, rate="+0%", volume="+0%", proxy=self.proxy, connect_timeout=15, receive_timeout=90)
-                    await communicate.save(str(output_path))
-                    if output_path.exists() and output_path.stat().st_size >= 100:
-                        duration = await self._probe_duration(output_path)
-                        if duration <= 0:
-                            raise TTSError("Edge TTS produced an invalid audio file", retryable=True)
-                        logger.info("Edge TTS ok voice=%s duration=%.1fs", voice_id, duration)
-                        return TTSResult(
-                            path=str(output_path),
-                            duration=duration,
-                            provider=self.name,
-                            voice=voice_id,
+        async def synth_one(chunk: str, path: Path) -> None:
+            last_exc: Optional[Exception] = None
+            for voice_id in voices_to_try:
+                for attempt in range(1, 3):
+                    try:
+                        path.unlink(missing_ok=True)
+                        communicate = edge_tts.Communicate(
+                            chunk, voice_id, rate="+0%", volume="+0%",
+                            proxy=self.proxy, connect_timeout=15, receive_timeout=90,
                         )
-                    last_exc = TTSError("Edge TTS produced empty file", retryable=True)
-                except Exception as exc:
-                    last_exc = exc
-                    logger.warning(
-                        "Edge TTS voice=%s attempt=%s/%s failed: %s",
-                        voice_id, attempt, attempts_per_voice, exc,
-                    )
-                    if attempt < attempts_per_voice:
-                        await asyncio.sleep(0.8 + random.random() * 0.7)
+                        await communicate.save(str(path))
+                        if path.exists() and path.stat().st_size >= 100:
+                            logger.info("Edge TTS chunk ok voice=%s", voice_id)
+                            return
+                        last_exc = TTSError("Edge TTS produced empty file", retryable=True)
+                    except Exception as exc:
+                        last_exc = exc
+                        logger.warning(
+                            "Edge TTS voice=%s attempt=%s/2 failed: %s",
+                            voice_id, attempt, exc,
+                        )
+                        if attempt < 2:
+                            await asyncio.sleep(0.8 + random.random() * 0.7)
+            raise TTSError(f"Edge TTS chunk failed: {last_exc}", retryable=True)
 
-        raise TTSError(
-            f"Edge TTS failed after {len(voices_to_try)} voices: {last_exc}",
-            retryable=True,
-        ) from last_exc
+        try:
+            duration = await synthesize_chunked(
+                cleaned, output_path, max_chars=2500, concurrency=2,
+                synthesize_one=synth_one,
+            )
+        except Exception as exc:
+            if isinstance(exc, TTSError):
+                raise
+            raise TTSError(f"Edge TTS failed: {exc}", retryable=True) from exc
+
+        if duration <= 0:
+            raise TTSError("Edge TTS produced invalid audio", retryable=True)
+        logger.info("Edge TTS complete voice=%s duration=%.1fs", voice or self._pick_voice(language), duration)
+        return TTSResult(
+            path=str(output_path), duration=duration, provider=self.name,
+            voice=voice or self._pick_voice(language),
+        )
 
     async def list_voices(self, language: Optional[str] = None) -> List[VoiceInfo]:
         try:

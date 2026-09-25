@@ -84,6 +84,7 @@ class Settings(BaseSettings):
     shorts_output_height: int = Field(default=1920, ge=320)
     shorts_max_parts: int = Field(default=10000, ge=1, le=10000)
     shorts_retention_days: int = Field(default=1, ge=0)
+    shorts_max_input_size_gb: float = Field(default=100.0, gt=0)
     shorts_auto_best_time: bool = True
     shorts_default_timezone: str = "Asia/Kolkata"
     shorts_boundary_tolerance_seconds: float = Field(default=5.0, ge=0, le=30)

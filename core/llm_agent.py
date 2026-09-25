@@ -64,8 +64,9 @@ class LLMAgent:
         language: str = "en",
         mode: str = "AI_RECAP",
     ) -> RecapScript:
+        target_cap = 8000 if mode == "TRANSFORMATIVE" else 1800
         target_words = min(
-            1800,
+            target_cap,
             max(50, int((duration_seconds / 60.0) * self.settings.words_per_minute)),
         )
         lang_name = {

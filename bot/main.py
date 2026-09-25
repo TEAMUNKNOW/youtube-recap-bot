@@ -124,7 +124,10 @@ class Application:
                 elif stage == "FAILED":
                     text = format_failed(task_id, extra or "Failed")
                     await self.bot.edit_message_text(
-                        task.chat_id, task.status_message_id, text
+                        task.chat_id, task.status_message_id, text,
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("🔄 Retry", callback_data=f"{CB_RESULT_RETRY}:{task.id}")]
+                        ]),
                     )
                 else:
                     text = format_progress(stage, percent, task_id=task_id, extra=extra)

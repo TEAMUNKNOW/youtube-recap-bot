@@ -24,6 +24,17 @@ def register_shorts_handlers(app:Client):
         uid=message.from_user.id
         session=getattr(client,"shorts_sessions",{}).get(uid)
         if not session:return
+        if session.get("custom_duration_pid") and message.text:
+            try: value=int(message.text.strip())
+            except ValueError: await message.reply_text("Send only a number of seconds."); raise StopPropagation
+            if not 30<=value<=1800: await message.reply_text("Custom duration must be between 30 and 1800 seconds."); raise StopPropagation
+            async with get_session() as s:
+                p=await s.get(ShortsProject,int(session["custom_duration_pid"]))
+                if not p or p.user_id!=(await ensure_user(uid)).id: await message.reply_text("Project not found."); raise StopPropagation
+                p.clip_duration=value
+            getattr(client,"shorts_sessions",{}).pop(uid,None)
+            await message.reply_text(f"⏱️ Custom target duration set to {value}s.")
+            raise StopPropagation
         if message.text and not (m:=URL_RE.search(message.text.strip())): return
         user=await ensure_user(uid); settings=get_settings()
         if message.text:

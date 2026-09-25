@@ -8,7 +8,7 @@ from bot.config import Settings
 from bot.database.models import ShortsOAuthState, YouTubeAccount
 from bot.database.session import get_session
 from sqlalchemy import select, delete
-SCOPES=["https://www.googleapis.com/auth/youtube.upload","https://www.googleapis.com/auth/youtube.readonly"]
+SCOPES=["https://www.googleapis.com/auth/youtube.upload","https://www.googleapis.com/auth/youtube.readonly","https://www.googleapis.com/auth/yt-analytics.readonly"]
 class YouTubeOAuth:
     def __init__(self, settings: Settings): self.settings=settings
     def _client_config(self)->dict:

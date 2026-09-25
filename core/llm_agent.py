@@ -1,11 +1,11 @@
-"""LLM agent for recap scripts and SEO metadata with structured JSON validation."""
+"""LLM agent for recap scripts and SEO metadata with multi-model free fallback."""
 
 from __future__ import annotations
 
 import json
 import logging
 import re
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Sequence
 
 from pydantic import BaseModel, Field, ValidationError as PydanticValidationError
 
@@ -14,6 +14,18 @@ from bot.exceptions import LLMError
 from core.retry import retry_async
 
 logger = logging.getLogger(__name__)
+
+# Free-tier friendly Groq model IDs (Sept 2026). Tried in order on failure.
+GROQ_FREE_MODELS: Sequence[str] = (
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.8-27b",
+    "qwen/qwen3.6-27b",
+    "llama-3.1-8b-instant",
+    "llama-3.3-70b-versatile",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it",
+)
 
 
 class Chapter(BaseModel):
@@ -50,11 +62,21 @@ class LLMAgent:
         self.settings = settings
 
     async def generate_recap_script(
-        self, transcript_text: str, *, duration_seconds: float,
-        language: str = "en", mode: str = "AI_RECAP",
+        self,
+        transcript_text: str,
+        *,
+        duration_seconds: float,
+        language: str = "en",
+        mode: str = "AI_RECAP",
     ) -> RecapScript:
         target_words = max(50, int((duration_seconds / 60.0) * self.settings.words_per_minute))
-        lang_name = {"hi": "Hindi", "en": "English", "bn": "Bengali", "es": "Spanish"}.get(language[:2].lower(), language)
+        lang_name = {
+            "hi": "Hindi",
+            "en": "English",
+            "bn": "Bengali",
+            "es": "Spanish",
+        }.get(language[:2].lower(), language)
+
         system = (
             "You are an expert video recap writer. Produce a dramatic, coherent "
             "recap/commentary script. Do NOT fabricate facts. Preserve important "
@@ -72,14 +94,19 @@ class LLMAgent:
             "word_count (int), tone (string), chapters (array of {title, start_seconds}), "
             "key_points (array of strings)."
         )
+
         raw = await self._complete(system, user)
         data = self._extract_json(raw)
         try:
             script = RecapScript.model_validate(data)
         except PydanticValidationError as exc:
-            repair = await self._complete(system, f"Fix this into valid JSON matching the schema. Errors: {exc}\n\n{raw[:4000]}")
+            repair = await self._complete(
+                system,
+                f"Fix this into valid JSON matching the schema. Errors: {exc}\n\n{raw[:4000]}",
+            )
             data = self._extract_json(repair)
             script = RecapScript.model_validate(data)
+
         if not script.script.strip():
             raise LLMError("Empty script generated", retryable=True)
         if script.word_count <= 0:
@@ -87,7 +114,11 @@ class LLMAgent:
         return script
 
     async def generate_seo(
-        self, script: str, *, original_title: Optional[str] = None, language: str = "en",
+        self,
+        script: str,
+        *,
+        original_title: Optional[str] = None,
+        language: str = "en",
     ) -> SEOResult:
         system = (
             "You are a YouTube SEO specialist. Generate accurate, non-fabricated "
@@ -106,34 +137,101 @@ class LLMAgent:
         try:
             seo = SEOResult.model_validate(data)
         except PydanticValidationError:
-            repair = await self._complete(system, f"Fix into valid SEO JSON:\n{raw[:4000]}")
+            repair = await self._complete(
+                system, f"Fix into valid SEO JSON:\n{raw[:4000]}"
+            )
             seo = SEOResult.model_validate(self._extract_json(repair))
+
         seo.titles = [t[:60].strip() for t in seo.titles if t.strip()][:3]
         if not seo.titles:
             raise LLMError("No valid titles generated", retryable=True)
         return seo
 
+    def _model_candidates(self) -> List[str]:
+        preferred = (getattr(self.settings, "groq_model", None) or "").strip()
+        seen: set[str] = set()
+        out: List[str] = []
+        for m in ([preferred] if preferred else []) + list(GROQ_FREE_MODELS):
+            if m and m not in seen:
+                seen.add(m)
+                out.append(m)
+        return out
+
     async def _complete(self, system: str, user: str) -> str:
         provider = (self.settings.llm_provider or "groq").lower()
-        if provider == "groq" and self.settings.groq_api_key:
-            return await retry_async(self._groq_complete, max_attempts=3, system=system, user=user)
-        if provider == "openai" and self.settings.openai_api_key:
-            return await retry_async(self._openai_complete, max_attempts=2, system=system, user=user)
-        if provider == "gemini" and self.settings.gemini_api_key:
-            return await retry_async(self._gemini_complete, max_attempts=2, system=system, user=user)
-        if self.settings.groq_api_key:
-            return await retry_async(self._groq_complete, max_attempts=3, system=system, user=user)
-        if self.settings.openai_api_key:
-            return await retry_async(self._openai_complete, max_attempts=2, system=system, user=user)
-        if self.settings.gemini_api_key:
-            return await retry_async(self._gemini_complete, max_attempts=2, system=system, user=user)
-        raise LLMError("No LLM API key configured", retryable=False)
 
-    async def _groq_complete(self, system: str, user: str) -> str:
+        if provider == "groq" or (
+            provider not in ("openai", "gemini") and self.settings.groq_api_key
+        ):
+            if self.settings.groq_api_key:
+                return await self._groq_complete_with_fallback(system, user)
+
+        if provider == "openai" and self.settings.openai_api_key:
+            return await retry_async(
+                self._openai_complete, max_attempts=2, system=system, user=user
+            )
+        if provider == "gemini" and self.settings.gemini_api_key:
+            return await retry_async(
+                self._gemini_complete, max_attempts=2, system=system, user=user
+            )
+
+        if self.settings.groq_api_key:
+            return await self._groq_complete_with_fallback(system, user)
+        if self.settings.openai_api_key:
+            return await retry_async(
+                self._openai_complete, max_attempts=2, system=system, user=user
+            )
+        if self.settings.gemini_api_key:
+            return await retry_async(
+                self._gemini_complete, max_attempts=2, system=system, user=user
+            )
+        raise LLMError(
+            "No LLM API key configured (set GROQ_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY)",
+            retryable=False,
+        )
+
+    async def _groq_complete_with_fallback(self, system: str, user: str) -> str:
+        models = self._model_candidates()
+        last_err: Optional[Exception] = None
+        for model in models:
+            try:
+                text = await self._groq_complete_one(system, user, model)
+                logger.info("Groq LLM success with model=%s", model)
+                return text
+            except LLMError as exc:
+                last_err = exc
+                msg = str(exc).lower()
+                if any(
+                    x in msg
+                    for x in (
+                        "404",
+                        "model_not_found",
+                        "does not exist",
+                        "do not have access",
+                        "not available",
+                        "invalid_request",
+                    )
+                ):
+                    logger.warning("Groq model %s unavailable, trying next: %s", model, exc)
+                    continue
+                if "rate limited" in msg or "server error" in msg or "429" in msg or "503" in msg:
+                    logger.warning("Groq model %s temporary error, trying next: %s", model, exc)
+                    continue
+                logger.warning("Groq model %s failed, trying next: %s", model, exc)
+                continue
+        raise LLMError(
+            f"All Groq models failed. Last error: {last_err}",
+            retryable=True,
+        ) from last_err
+
+    async def _groq_complete_one(self, system: str, user: str, model: str) -> str:
         import httpx
-        model = getattr(self.settings, "groq_model", None) or "openai/gpt-oss-20b"
+
         url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {self.settings.groq_api_key}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {self.settings.groq_api_key}",
+            "Content-Type": "application/json",
+        }
         body = {
             "model": model,
             "messages": [
@@ -146,25 +244,35 @@ class LLMAgent:
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, headers=headers, json=body)
         if resp.status_code == 429:
-            raise LLMError("Groq rate limited", retryable=True)
+            raise LLMError(f"Groq rate limited ({model})", retryable=True)
         if resp.status_code >= 500:
-            raise LLMError(f"Groq server error {resp.status_code}", retryable=True)
+            raise LLMError(f"Groq server error {resp.status_code} ({model})", retryable=True)
         if resp.status_code != 200:
-            raise LLMError(f"Groq error {resp.status_code}: {resp.text[:300]}", retryable=False)
+            raise LLMError(
+                f"Groq error {resp.status_code} ({model}): {resp.text[:300]}",
+                retryable=False,
+            )
         data = resp.json()
         try:
             return data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise LLMError("Malformed Groq response", retryable=True) from exc
+            raise LLMError(f"Malformed Groq response ({model})", retryable=True) from exc
 
     async def _gemini_complete(self, system: str, user: str) -> str:
         import httpx
+
         model = self.settings.gemini_model
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.settings.gemini_api_key}"
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={self.settings.gemini_api_key}"
+        )
         body = {
             "system_instruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
-            "generationConfig": {"temperature": 0.7, "responseMimeType": "application/json"},
+            "generationConfig": {
+                "temperature": 0.7,
+                "responseMimeType": "application/json",
+            },
         }
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, json=body)
@@ -182,8 +290,12 @@ class LLMAgent:
 
     async def _openai_complete(self, system: str, user: str) -> str:
         import httpx
+
         url = "https://api.openai.com/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {self.settings.openai_api_key}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {self.settings.openai_api_key}",
+            "Content-Type": "application/json",
+        }
         body = {
             "model": self.settings.openai_model,
             "messages": [

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from pathlib import Path
 from typing import List, Optional, Sequence
 
@@ -21,20 +22,17 @@ class FFmpegRunner:
         self._detected = False
 
     async def detect_hw(self) -> Optional[str]:
-        """Detect a *working* hardware encoder. On cloud (no GPU) always libx264."""
         if self._detected:
             return self._hw_encoder
         self._detected = True
 
-        # No CUDA library → skip NVENC (Railway / most free cloud)
         cuda_paths = (
             Path("/usr/lib/x86_64-linux-gnu/libcuda.so.1"),
             Path("/usr/lib/libcuda.so.1"),
             Path("/usr/local/cuda/lib64/libcuda.so.1"),
         )
         has_cuda = any(p.exists() for p in cuda_paths)
-
-        candidates = []
+        candidates: List[str] = []
         if has_cuda:
             candidates.append("h264_nvenc")
         candidates.extend(["h264_qsv", "h264_amf"])
@@ -50,10 +48,9 @@ class FFmpegRunner:
         return None
 
     async def _encoder_listed(self, name: str) -> bool:
-        cmd = ["ffmpeg", "-hide_banner", "-encoders"]
         try:
             proc = await asyncio.create_subprocess_exec(
-                *cmd,
+                "ffmpeg", "-hide_banner", "-encoders",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -63,18 +60,15 @@ class FFmpegRunner:
             return False
 
     async def _encoder_works(self, name: str) -> bool:
-        """Actually try encoding 1 black frame — listing in -encoders is not enough."""
         if not await self._encoder_listed(name):
             return False
         import tempfile
-
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "probe.mp4"
             cmd = [
                 "ffmpeg", "-hide_banner", "-y",
                 "-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.1",
-                "-frames:v", "1",
-                "-c:v", name,
+                "-frames:v", "1", "-c:v", name,
             ]
             if name == "h264_nvenc":
                 cmd += ["-preset", "p1"]
@@ -122,30 +116,15 @@ class FFmpegRunner:
             raise FFmpegError(f"{label} failed: {err}")
 
 
-class MediaNormalizer:
-    def __init__(self, settings: Settings, runner: FFmpegRunner) -> None:
+class VideoEngine:
+    """Facade used by pipeline: extract / mute / mix / render / validate."""
+
+    def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.runner = runner
-
-    async def normalize_video(self, src: Path, dst: Path) -> MediaInfo:
-        args = [
-            "-i", str(src),
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-            "-c:a", "aac", "-b:a", "128k",
-            "-movflags", "+faststart",
-            "-pix_fmt", "yuv420p",
-            str(dst),
-        ]
-        await self.runner.run(args, label="normalize")
-        return await probe(dst)
-
-
-class AudioProcessor:
-    def __init__(self, settings: Settings, runner: FFmpegRunner) -> None:
-        self.settings = settings
-        self.runner = runner
+        self.runner = FFmpegRunner(settings)
 
     async def extract_audio(self, video: Path, out_wav: Path) -> Path:
+        out_wav.parent.mkdir(parents=True, exist_ok=True)
         args = [
             "-i", str(video),
             "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
@@ -154,17 +133,40 @@ class AudioProcessor:
         await self.runner.run(args, label="extract_audio")
         return out_wav
 
-    async def mix_narration_bgm(
+    async def mute_video(self, video: Path, out_video: Path) -> Path:
+        out_video.parent.mkdir(parents=True, exist_ok=True)
+        args = [
+            "-i", str(video),
+            "-c:v", "copy", "-an",
+            str(out_video),
+        ]
+        await self.runner.run(args, label="mute_video")
+        return out_video
+
+    def pick_bgm(self) -> Optional[Path]:
+        bgm_dir = Path(self.settings.bgm_directory)
+        if not bgm_dir.exists():
+            return None
+        files = [
+            p for p in bgm_dir.iterdir()
+            if p.suffix.lower() in {".mp3", ".wav", ".m4a", ".aac", ".ogg"}
+        ]
+        if not files:
+            return None
+        return random.choice(files)
+
+    async def mix_audio(
         self,
         narration: Path,
-        bgm: Optional[Path],
         output: Path,
         *,
-        narration_vol: Optional[float] = None,
-        bgm_vol: Optional[float] = None,
+        bgm: Optional[Path] = None,
+        video_duration: Optional[float] = None,
+        narration_duration: Optional[float] = None,
     ) -> Path:
-        nv = narration_vol if narration_vol is not None else self.settings.narration_volume
-        bv = bgm_vol if bgm_vol is not None else self.settings.bgm_volume
+        output.parent.mkdir(parents=True, exist_ok=True)
+        nv = self.settings.narration_volume
+        bv = self.settings.bgm_volume
         if bgm is None or not bgm.exists():
             args = [
                 "-i", str(narration),
@@ -174,6 +176,7 @@ class AudioProcessor:
             ]
             await self.runner.run(args, label="narration_only")
             return output
+
         filter_complex = (
             f"[0:a]volume={nv}[nar];"
             f"[1:a]volume={bv},aloop=loop=-1:size=2e+09[bg];"
@@ -190,21 +193,18 @@ class AudioProcessor:
         await self.runner.run(args, label="mix_audio")
         return output
 
-
-class VideoProcessor:
-    def __init__(self, settings: Settings, runner: FFmpegRunner) -> None:
-        self.settings = settings
-        self.runner = runner
-
-    async def render_final(
+    async def align_and_render(
         self,
-        video: Path,
+        muted_video: Path,
         mixed_audio: Path,
         output: Path,
         *,
-        ass_path: Optional[Path] = None,
-        duration_limit: Optional[float] = None,
+        video_duration: Optional[float] = None,
+        narration_duration: Optional[float] = None,
+        subtitles: Optional[Path] = None,
+        mode: str = "AI_RECAP",
     ) -> Path:
+        output.parent.mkdir(parents=True, exist_ok=True)
         await self.runner.detect_hw()
         encoder = self._video_encoder_args()
 
@@ -214,13 +214,30 @@ class VideoProcessor:
             f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
             f"fps={self.settings.export_fps}",
         ]
-        if ass_path and ass_path.exists():
-            ass_esc = str(ass_path).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+        if subtitles and Path(subtitles).exists():
+            ass_esc = (
+                str(subtitles)
+                .replace("\\", "/")
+                .replace(":", "\\:")
+                .replace("'", "\\'")
+            )
             vf_parts.append(f"ass='{ass_esc}'")
         vf = ",".join(vf_parts)
 
+        try:
+            if video_duration is not None and narration_duration is not None:
+                diff = narration_duration - video_duration
+                if abs(diff) > self.settings.av_sync_tolerance_seconds:
+                    logger.warning(
+                        "AV sync diff %.1fs exceeds tolerance %.1fs (using -shortest)",
+                        diff,
+                        self.settings.av_sync_tolerance_seconds,
+                    )
+        except Exception:
+            pass
+
         args: list[str] = [
-            "-i", str(video),
+            "-i", str(muted_video),
             "-i", str(mixed_audio),
             "-map", "0:v:0",
             "-map", "1:a:0",
@@ -232,36 +249,22 @@ class VideoProcessor:
             "-shortest",
             str(output),
         ]
-        if duration_limit and duration_limit > 0:
-            args = ["-t", str(duration_limit), *args]
-
-        try:
-            vinfo = await probe(video)
-            ainfo = await probe(mixed_audio)
-            if vinfo.duration and ainfo.duration:
-                diff = ainfo.duration - vinfo.duration
-                if abs(diff) > self.settings.av_sync_tolerance_seconds:
-                    logger.warning(
-                        "AV sync diff %.1fs exceeds tolerance %.1fs (continuing with -shortest)",
-                        diff,
-                        self.settings.av_sync_tolerance_seconds,
-                    )
-        except Exception as exc:
-            logger.debug("AV probe skipped: %s", exc)
 
         try:
             await self.runner.run(args, label="render_final")
         except FFmpegError as exc:
-            if self.runner._hw_encoder and (
-                "nvenc" in str(exc).lower()
-                or "cuda" in str(exc).lower()
-                or "qsv" in str(exc).lower()
+            msg = str(exc).lower()
+            if self.runner._hw_encoder and any(
+                x in msg for x in ("nvenc", "cuda", "qsv", "amf")
             ):
-                logger.warning("HW encode failed (%s); retrying with libx264", self.runner._hw_encoder)
+                logger.warning(
+                    "HW encode failed (%s); retrying with libx264",
+                    self.runner._hw_encoder,
+                )
                 self.runner._hw_encoder = None
                 encoder = self._video_encoder_args()
                 args = [
-                    "-i", str(video),
+                    "-i", str(muted_video),
                     "-i", str(mixed_audio),
                     "-map", "0:v:0",
                     "-map", "1:a:0",
@@ -277,6 +280,19 @@ class VideoProcessor:
             else:
                 raise
         return output
+
+    async def validate_output(self, path: Path) -> MediaInfo:
+        info = await probe(path)
+        if not path.exists() or path.stat().st_size < 1000:
+            raise ValidationError(f"Output missing or too small: {path}")
+        if not info.has_video:
+            raise ValidationError("Output has no video stream")
+        max_bytes = self.settings.max_output_bytes()
+        if info.size_bytes > max_bytes:
+            raise ValidationError(
+                f"Output {info.size_bytes} exceeds max {max_bytes} bytes"
+            )
+        return info
 
     def _video_encoder_args(self) -> List[str]:
         hw = self.runner._hw_encoder
@@ -296,3 +312,7 @@ class VideoProcessor:
             "-crf", str(self.settings.export_crf),
             "-pix_fmt", "yuv420p",
         ]
+
+
+VideoProcessor = VideoEngine
+AudioProcessor = VideoEngine

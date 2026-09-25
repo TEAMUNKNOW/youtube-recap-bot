@@ -127,11 +127,11 @@ class LLMAgent:
             return await retry_async(self._openai_complete, max_attempts=2, system=system, user=user)
         if self.settings.gemini_api_key:
             return await retry_async(self._gemini_complete, max_attempts=2, system=system, user=user)
-        raise LLMError("No LLM API key configured (set GROQ_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY)", retryable=False)
+        raise LLMError("No LLM API key configured", retryable=False)
 
     async def _groq_complete(self, system: str, user: str) -> str:
         import httpx
-        model = getattr(self.settings, "groq_model", None) or "llama-3.3-70b-versatile"
+        model = getattr(self.settings, "groq_model", None) or "openai/gpt-oss-20b"
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {"Authorization": f"Bearer {self.settings.groq_api_key}", "Content-Type": "application/json"}
         body = {

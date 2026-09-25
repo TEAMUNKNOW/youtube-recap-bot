@@ -13,6 +13,7 @@ from core.tts.edge_tts_provider import EdgeTTSProvider
 from core.tts.elevenlabs_provider import ElevenLabsProvider
 from core.tts.openai_tts_provider import OpenAITTSProvider
 from core.tts.local_tts_provider import LocalTTSProvider
+from core.tts.omnivoice_provider import OmniVoiceProvider
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,16 @@ def create_tts_provider(settings: Settings, provider: Optional[str] = None) -> B
         return OpenAITTSProvider(settings)
     if name in ("local", "offline", "espeak", "espeak-ng"):
         return LocalTTSProvider()
+    if name in ("omnivoice", "omni_voice", "omni"):
+        return OmniVoiceProvider(
+            model_id=settings.omnivoice_model,
+            device=settings.omnivoice_device,
+            dtype=settings.omnivoice_dtype,
+            ref_audio=settings.omnivoice_ref_audio,
+            ref_text=settings.omnivoice_ref_text,
+            instruct=settings.omnivoice_instruct,
+            num_steps=settings.omnivoice_num_steps,
+        )
 
     raise TTSError(f"Unknown TTS provider: {name}", retryable=False)
 
@@ -50,6 +61,8 @@ def _canonical_provider(name: str) -> str:
         return "elevenlabs"
     if name in ("local", "offline", "espeak", "espeak-ng"):
         return "local"
+    if name in ("omnivoice", "omni_voice", "omni"):
+        return "omnivoice"
     return name
 
 
@@ -69,7 +82,6 @@ class TTSFactory:
         return order
 
     def _voice_for(self, provider: str, requested_voice: Optional[str]) -> Optional[str]:
-        # Voice IDs are provider-specific and must never cross providers.
         if requested_voice and provider == _canonical_provider(self.settings.tts_provider):
             return requested_voice
         if provider == "edge":
@@ -80,6 +92,8 @@ class TTSFactory:
             return None
         if provider == "elevenlabs":
             return self.settings.elevenlabs_voice_id
+        if provider == "omnivoice":
+            return requested_voice or "omnivoice"
         return requested_voice
 
     async def synthesize(
@@ -102,7 +116,6 @@ class TTSFactory:
             try:
                 active_provider = create_tts_provider(self.settings, provider_name)
             except TTSError as exc:
-                # A fallback provider without its API key is simply unavailable.
                 logger.warning("TTS provider=%s unavailable: %s", provider_name, exc)
                 last_error = exc
                 continue
@@ -127,12 +140,8 @@ class TTSFactory:
                 last_error = exc
                 logger.warning(
                     "TTS provider=%s failed retryable=%s: %s",
-                    provider_name,
-                    exc.retryable,
-                    exc,
+                    provider_name, exc.retryable, exc,
                 )
-                # A non-retryable error normally means bad configuration/input;
-                # still allow the next configured provider to rescue the task.
                 continue
             except Exception as exc:
                 last_error = exc

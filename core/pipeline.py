@@ -139,12 +139,20 @@ class Pipeline:
             ctx.transcript = await self.transcriber.transcribe(ctx.audio_path)
 
             await self._stage(task_id, "SCRIPTING", 45)
-            ctx.script = await self.llm.generate_recap_script(
-                ctx.transcript.text,
-                duration_seconds=ctx.media_info.duration,
-                language=language,
-                mode=mode,
-            )
+            if ctx.media_info.duration >= 15 * 60:
+                ctx.script = await self.llm.generate_long_form_recap(
+                    ctx.transcript,
+                    duration_seconds=ctx.media_info.duration,
+                    language=language,
+                    mode=mode,
+                )
+            else:
+                ctx.script = await self.llm.generate_recap_script(
+                    ctx.transcript.text,
+                    duration_seconds=ctx.media_info.duration,
+                    language=language,
+                    mode=mode,
+                )
 
             await self._stage(task_id, "TTS", 55)
             ctx.tts_result = await self.tts.synthesize(
@@ -163,7 +171,12 @@ class Pipeline:
             # on a recap-length narration.
             if mode == "TRANSFORMATIVE" and abs(narr_dur - vid_dur) > self.settings.av_sync_tolerance_seconds:
                 logger.warning("Re-scripting due to AV mismatch %.1fs", narr_dur - vid_dur)
-                ctx.script = await self.llm.generate_recap_script(
+                ctx.script = await self.llm.generate_long_form_recap(
+                    ctx.transcript,
+                    duration_seconds=vid_dur,
+                    language=language,
+                    mode=mode,
+                ) if vid_dur >= 15 * 60 else await self.llm.generate_recap_script(
                     ctx.transcript.text,
                     duration_seconds=vid_dur,
                     language=language,
@@ -200,7 +213,7 @@ class Pipeline:
                 ctx.transcript,
                 ctx.subtitles_path,
                 script_text=ctx.script.script,
-                use_words=bool(getattr(ctx.transcript, "words", None)),
+                use_words=False,
             )
             ctx.debug_paths.append(ctx.subtitles_path)
 
@@ -223,10 +236,31 @@ class Pipeline:
                 ctx.thumbnail_path,
                 title=ctx.script.title,
                 duration=narr_dur or vid_dur,
+                chapters=getattr(ctx.script, "chapters", None),
             )
 
             await self._stage(task_id, "VALIDATING_OUTPUT", 92)
             info = await self.video.validate_output(ctx.output_video_path)
+            sync_diff = narr_dur - float(info.duration or narr_dur)
+            metadata = {
+                "source_duration": vid_dur,
+                "narration_duration": narr_dur,
+                "output_duration": float(info.duration or 0),
+                "sync_offset_seconds": sync_diff,
+                "sync_within_tolerance": abs(sync_diff) <= self.settings.av_sync_tolerance_seconds,
+                "word_count": int(getattr(ctx.script, "word_count", 0) or len(ctx.script.script.split())),
+                "chapters": [
+                    {"title": ch.title, "start_seconds": ch.start_seconds}
+                    for ch in (getattr(ctx.script, "chapters", None) or [])
+                ],
+                "key_points": list(getattr(ctx.script, "key_points", None) or []),
+                "raw_files": sorted(p.name for p in ws.iterdir() if p.is_file()),
+            }
+            async with get_session() as session:
+                await session.execute(
+                    update(Task).where(Task.id == task_id).values(metadata_json=metadata)
+                )
+                await session.commit()
 
             await self._stage(task_id, "SEO", 95)
             try:

@@ -1,0 +1,1 @@
+"""Autonomous Shorts Factory subsystem."""

@@ -15,7 +15,7 @@ from core.shorts.planner import continuous_manifest,highlight_manifest
 from core.shorts.renderer import ShortsRenderer
 from core.shorts.metadata import ShortsMetadata
 from core.shorts.scheduler import ShortsScheduler
-from core.shorts.uploader import ShortsUploader
+from core.shorts.uploader import ShortsUploader,ShortsQuotaExceeded,ShortsAuthError
 from core.shorts.analytics import AnalyticsAdvisor
 from bot.database.models import ShortsSchedule
 logger=logging.getLogger(__name__)
@@ -164,5 +164,17 @@ class ShortsManager:
             async with get_session() as s: c=await s.get(ShortClip,cid); p=await s.get(ShortsProject,pid); q=await s.execute(select(YouTubeAccount).where(YouTubeAccount.user_id==p.user_id,YouTubeAccount.revoked_at.is_(None))); account=q.scalars().first()
             vid=await self.uploader.upload(account,c)
             async with get_session() as s: c=await s.get(ShortClip,cid); c.youtube_video_id=vid; c.status=ShortsClipStatus.SCHEDULED
+        except ShortsQuotaExceeded as exc:
+            async with get_session() as s:
+                c=await s.get(ShortClip,cid); p=await s.get(ShortsProject,pid)
+                c.status=ShortsClipStatus.RENDERED; c.error=str(exc)
+                if p: p.status=ShortsProjectStatus.PAUSED; p.error=str(exc)
+            return
+        except ShortsAuthError as exc:
+            async with get_session() as s:
+                c=await s.get(ShortClip,cid); p=await s.get(ShortsProject,pid)
+                c.status=ShortsClipStatus.RENDERED; c.error=str(exc)
+                if p: p.status=ShortsProjectStatus.PAUSED; p.error=str(exc)
+            return
         except Exception:
             async with get_session() as s: c=await s.get(ShortClip,cid); c.status=ShortsClipStatus.RENDERED; raise

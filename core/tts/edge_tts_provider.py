@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 from pathlib import Path
 from typing import List, Optional
@@ -70,26 +71,37 @@ class EdgeTTSProvider(BaseTTSProvider):
             raise TTSError("edge-tts package not installed", retryable=False) from exc
 
         last_exc: Optional[Exception] = None
+        # NoAudioReceived can be transient; retry each voice before moving on.
+        attempts_per_voice = 2
         for voice_id in voices_to_try:
-            try:
-                if output_path.exists():
-                    output_path.unlink(missing_ok=True)
-                communicate = edge_tts.Communicate(cleaned, voice_id, rate="+0%", volume="+0%")
-                await communicate.save(str(output_path))
-                if output_path.exists() and output_path.stat().st_size >= 100:
-                    duration = await self._probe_duration(output_path)
-                    logger.info("Edge TTS ok voice=%s duration=%.1fs", voice_id, duration)
-                    return TTSResult(
-                        path=str(output_path),
-                        duration=duration,
-                        provider=self.name,
-                        voice=voice_id,
+            for attempt in range(1, attempts_per_voice + 1):
+                try:
+                    if output_path.exists():
+                        output_path.unlink(missing_ok=True)
+                    communicate = edge_tts.Communicate(
+                        cleaned, voice_id, rate="+0%", volume="+0%"
                     )
-                last_exc = TTSError("Edge TTS produced empty file", retryable=True)
-            except Exception as exc:
-                logger.warning("Edge TTS voice %s failed: %s", voice_id, exc)
-                last_exc = exc
-                continue
+                    await communicate.save(str(output_path))
+                    if output_path.exists() and output_path.stat().st_size >= 100:
+                        duration = await self._probe_duration(output_path)
+                        if duration <= 0:
+                            raise TTSError("Edge TTS produced an invalid audio file", retryable=True)
+                        logger.info("Edge TTS ok voice=%s duration=%.1fs", voice_id, duration)
+                        return TTSResult(
+                            path=str(output_path),
+                            duration=duration,
+                            provider=self.name,
+                            voice=voice_id,
+                        )
+                    last_exc = TTSError("Edge TTS produced empty file", retryable=True)
+                except Exception as exc:
+                    last_exc = exc
+                    logger.warning(
+                        "Edge TTS voice=%s attempt=%s/%s failed: %s",
+                        voice_id, attempt, attempts_per_voice, exc,
+                    )
+                    if attempt < attempts_per_voice:
+                        await asyncio.sleep(0.8 + random.random() * 0.7)
 
         raise TTSError(
             f"Edge TTS failed after {len(voices_to_try)} voices: {last_exc}",

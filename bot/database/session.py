@@ -30,8 +30,24 @@ def _configure_sqlite(dbapi_conn: object, _connection_record: object) -> None:
     cursor.close()
 
 
+async def _sqlite_add_missing_columns(conn) -> None:
+    """Lightweight migrate: ADD COLUMN for new Task fields if missing."""
+    result = await conn.execute(text("PRAGMA table_info(tasks)"))
+    rows = result.fetchall()
+    existing = {row[1] for row in rows}  # column name
+    alters = []
+    if "tts_provider" not in existing:
+        alters.append("ALTER TABLE tasks ADD COLUMN tts_provider VARCHAR(32)")
+    if "tts_voice" not in existing:
+        alters.append("ALTER TABLE tasks ADD COLUMN tts_voice VARCHAR(64)")
+    if "voice" not in existing:
+        alters.append("ALTER TABLE tasks ADD COLUMN voice VARCHAR(64)")
+    for sql in alters:
+        await conn.execute(text(sql))
+
+
 async def init_db(settings: Optional[Settings] = None) -> None:
-    """Create engine, enable WAL, create tables."""
+    """Create engine, enable WAL, create tables, migrate columns."""
     global _engine, _session_factory
     settings = settings or get_settings()
 
@@ -53,6 +69,8 @@ async def init_db(settings: Optional[Settings] = None) -> None:
 
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        if settings.database_url.startswith("sqlite"):
+            await _sqlite_add_missing_columns(conn)
 
 
 async def close_db() -> None:

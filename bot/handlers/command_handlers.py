@@ -26,6 +26,7 @@ def register_command_handlers(app: Client) -> None:
         await ensure_user(message.from_user.id)
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎬 Create Recap", callback_data="menu:create")],
+            [InlineKeyboardButton("🎬 Shorts Factory", callback_data="sf:menu")],
             [InlineKeyboardButton("🔗 YouTube URL", callback_data="menu:url"), InlineKeyboardButton("📤 Upload Video", callback_data="menu:upload")],
             [InlineKeyboardButton("🎙️ Voice", callback_data="menu:voice"), InlineKeyboardButton("🌐 Language", callback_data="menu:lang")],
             [InlineKeyboardButton("🖼️ Thumbnail", callback_data="menu:thumb"), InlineKeyboardButton("📊 My Tasks", callback_data="menu:tasks")],

@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     elevenlabs_model: str = Field(default="eleven_multilingual_v2")
 
     gemini_model: str = Field(default="gemini-3.8-flash")
-    groq_model: str = Field(default="openai/gpt-oss-20b")
+    groq_model: str = Field(default="openai/gpt-oss-120b")
     openai_model: str = Field(default="gpt-4o-mini")
     llm_provider: str = Field(default="groq")
 

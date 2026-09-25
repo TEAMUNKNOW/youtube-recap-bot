@@ -47,11 +47,20 @@ class TTSFactory:
         language: str = "en",
         out_dir: Optional[Path] = None,
         voice: Optional[str] = None,
+        provider: Optional[str] = None,
     ) -> TTSResult:
         out_dir = Path(out_dir) if out_dir else Path(self.settings.workspace_root)
         out_dir.mkdir(parents=True, exist_ok=True)
         output_path = out_dir / "narration.mp3"
-        return await self._provider.synthesize(
+
+        # Respect the provider selected for this task instead of always using
+        # the provider that was created when the application started.
+        selected = (provider or self.settings.tts_provider or "edge").lower()
+        active_provider = self._provider
+        if selected not in ("edge", "edge_tts") or active_provider.name != "edge":
+            active_provider = create_tts_provider(self.settings, selected)
+
+        return await active_provider.synthesize(
             text,
             output_path,
             voice=voice,

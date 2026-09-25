@@ -91,7 +91,7 @@ class ShortsManager:
                 p=await s.get(ShortsProject,pid)
                 if not p or p.status in (ShortsProjectStatus.PAUSED,ShortsProjectStatus.STOPPED,ShortsProjectStatus.COMPLETED): return
                 p.status=ShortsProjectStatus.RUNNING
-                q=await s.execute(select(ShortClip).where(ShortClip.project_id==pid,ShortClip.status.in_([ShortsClipStatus.PLANNED,ShortsClipStatus.FAILED])).order_by(ShortClip.part_number).limit(1))
+                q=await s.execute(select(ShortClip).where(ShortClip.project_id==pid,ShortClip.status.in_([ShortsClipStatus.PLANNED,ShortsClipStatus.FAILED,ShortsClipStatus.RENDERED])).order_by(ShortClip.part_number).limit(1))
                 clip=q.scalar_one_or_none()
             if not clip:
                 async with get_session() as s: p=await s.get(ShortsProject,pid); p.status=ShortsProjectStatus.COMPLETED
@@ -107,11 +107,16 @@ class ShortsManager:
         async with get_session() as s:
             p=await s.get(ShortsProject,pid); c=await s.get(ShortClip,cid)
             if not p or not c:return
-            source=Path(p.source_file); ws=Path(p.workspace_path); out=ws/f"part_{c.part_number:05d}.mp4"; c.status=ShortsClipStatus.RENDERING
-        async with self.sem:
-            dur=await self.render.render(source,c.source_start,c.source_end,out,p.playback_speed,"smart")
-        async with get_session() as s:
-            c=await s.get(ShortClip,cid); c.local_path=str(out); c.actual_duration=dur; c.status=ShortsClipStatus.RENDERED
+            source=Path(p.source_file); ws=Path(p.workspace_path); out=ws/f"part_{c.part_number:05d}.mp4"
+            already=bool(c.status==ShortsClipStatus.RENDERED and c.local_path and Path(c.local_path).exists())
+            if not already: c.status=ShortsClipStatus.RENDERING
+        if already:
+            dur=float(c.actual_duration or 0)
+        else:
+            async with self.sem:
+                dur=await self.render.render(source,c.source_start,c.source_end,out,p.playback_speed,"smart")
+            async with get_session() as s:
+                c=await s.get(ShortClip,cid); c.local_path=str(out); c.actual_duration=dur; c.status=ShortsClipStatus.RENDERED
             p=await s.get(ShortsProject,pid); p.processed_parts+=1
         async with get_session() as s:
             c=await s.get(ShortClip,cid); p=await s.get(ShortsProject,pid)

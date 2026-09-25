@@ -35,6 +35,7 @@ class RecapScript(BaseModel):
     tone: str = "dramatic"
     chapters: List[Chapter] = Field(default_factory=list)
     key_points: List[str] = Field(default_factory=list)
+    chapter_word_counts: List[int] = Field(default_factory=list)
 
 
 class SEOResult(BaseModel):
@@ -159,6 +160,7 @@ class LLMAgent:
         scripts: list[str] = []
         chapters: list[Chapter] = []
         key_points: list[str] = []
+        chapter_word_counts: list[int] = []
         for index, (start_s, end_s, chunk_text) in enumerate(chunks, 1):
             span = max(30.0, end_s - start_s)
             target_words = max(80, int(span / 60.0 * target_wpm))
@@ -184,6 +186,7 @@ class LLMAgent:
             scripts.append(part.script.strip())
             chapters.append(Chapter(title=part.title.strip() or f"Part {index}", start_seconds=start_s))
             key_points.extend(part.key_points[:8])
+            chapter_word_counts.append(len(part.script.split()))
 
         return RecapScript(
             title=titles[0] if titles else "Video Recap",
@@ -192,6 +195,7 @@ class LLMAgent:
             tone="cinematic storyteller",
             chapters=chapters,
             key_points=key_points[:40],
+            chapter_word_counts=chapter_word_counts,
         )
 
     async def generate_seo(

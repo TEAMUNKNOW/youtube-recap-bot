@@ -58,6 +58,14 @@ class Settings(BaseSettings):
     openai_tts_model: str = Field(default="tts-1-hd")
     openai_tts_voice: str = Field(default="alloy")
     elevenlabs_model: str = Field(default="eleven_multilingual_v2")
+    # Optional local/GPU OmniVoice backend. Model is lazy-loaded only when selected.
+    omnivoice_model: str = Field(default="k2-fsa/OmniVoice")
+    omnivoice_device: str = Field(default="auto")
+    omnivoice_dtype: str = Field(default="float16")
+    omnivoice_ref_audio: Optional[Path] = Field(default=None)
+    omnivoice_ref_text: Optional[str] = None
+    omnivoice_instruct: Optional[str] = None
+    omnivoice_num_steps: int = Field(default=32, ge=8, le=64)
 
     gemini_model: str = Field(default="gemini-3.8-flash")
     groq_model: str = Field(default="openai/gpt-oss-120b")

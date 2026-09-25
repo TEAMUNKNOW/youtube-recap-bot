@@ -8,6 +8,11 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 STAGE_EMOJI = {
+    "VALIDATING": "🔎",
+    "EXTRACTING_AUDIO": "🎧",
+    "MUTE_VIDEO": "🔇",
+    "MIX_AUDIO": "🎚️",
+    "VALIDATING_OUTPUT": "🔎",
     "DOWNLOADING": "⬇️",
     "PROBING": "🔍",
     "TRANSCRIBING": "🎙",

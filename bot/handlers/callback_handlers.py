@@ -153,12 +153,22 @@ def register_callback_handlers(app: Client) -> None:
                 import zipfile
                 from pathlib import Path
                 ws = Path(get_settings().workspace_root) / str(task_id)
-                candidates = [ws / "narration.mp3", ws / "script.txt", ws / "transcript.txt", ws / "subtitles.ass", ws / "muted.mp4", ws / "mixed_audio.m4a"]
+                candidates = [
+                    Path(task.source_file) if task.source_file else None,
+                    ws / "narration.mp3",
+                    ws / "narration_fitted.m4a",
+                    ws / "script.txt",
+                    ws / "transcript.txt",
+                    ws / "subtitles.ass",
+                    ws / "muted.mp4",
+                    ws / "mixed_audio.m4a",
+                ]
                 sent = 0
+                uploader = getattr(client, "user_client", None) or client
                 for path in candidates:
-                    if path.exists():
+                    if path and path.exists():
                         try:
-                            await client.send_document(query.message.chat.id, str(path), caption=f"🧪 Raw: {path.name}")
+                            await uploader.send_document(query.message.chat.id, str(path), caption=f"🧪 Raw: {path.name}")
                             sent += 1
                         except Exception:
                             logger.exception("Failed sending raw file %s", path)

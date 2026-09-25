@@ -201,7 +201,7 @@ def register_callback_handlers(app: Client) -> None:
                 queue = client.queue_manager  # type: ignore[attr-defined]
                 await queue.enqueue(task_id, priority=task.priority or 2)
                 await query.message.edit_text(
-                    f"🔄 <b>Task #{task_id} queued for retry</b>\\n\\nThe pipeline will start again from the beginning."
+                    f"🔄 <b>Task #{task_id} queued for retry</b>\n\nThe pipeline will start again from the beginning."
                 )
                 await query.answer("Retry queued")
                 return

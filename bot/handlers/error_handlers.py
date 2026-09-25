@@ -13,10 +13,6 @@ logger = logging.getLogger(__name__)
 
 
 def register_error_handlers(app: Client) -> None:
-    @app.on_message()
-    async def unauthorized_catch(client: Client, message) -> None:
-        pass
-
     async def global_error_handler(client: Client, update: Update, exception: Exception) -> None:
         if isinstance(exception, AuthError):
             return

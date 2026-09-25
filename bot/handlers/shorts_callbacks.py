@@ -82,17 +82,11 @@ async def _show_project(client, query, pid: int, uid: int):
         await query.answer("Project not found.", show_alert=True)
         return
     text = (
-        f"🎬 <b>Shorts Project #{pid}</b>
-
-"
-        f"Mode: <b>{'Continuous Series' if p.selection_mode.value == 'CONTINUOUS' else 'Highlight Clips'}</b>
-"
-        f"Duration: <b>{p.clip_duration}s</b>
-"
-        f"Speed: <b>{p.playback_speed}x</b>
-"
-        f"Status: <b>{p.status.value}</b>
-"
+        f"🎬 <b>Shorts Project #{pid}</b>\n\n"
+        f"Mode: <b>{'Continuous Series' if p.selection_mode.value == 'CONTINUOUS' else 'Highlight Clips'}</b>\n"
+        f"Duration: <b>{p.clip_duration}s</b>\n"
+        f"Speed: <b>{p.playback_speed}x</b>\n"
+        f"Status: <b>{p.status.value}</b>\n"
         f"Parts: <b>{p.processed_parts}/{p.total_parts}</b>"
     )
     await query.message.edit_text(text, reply_markup=_project_home_keyboard(pid, p.status))

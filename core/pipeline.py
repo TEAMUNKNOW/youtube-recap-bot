@@ -159,11 +159,15 @@ class Pipeline:
             (ws / "script.txt").write_text(ctx.script.script, encoding="utf-8")
             (ws / "transcript.txt").write_text(ctx.transcript.text, encoding="utf-8")
             await self._stage(task_id, "TTS", 55)
+            tts_language = (
+                (ctx.transcript.language or "en") if language == "original" else language
+            )
+            tts_voice_for_task = None if language == "original" else tts_voice
             ctx.tts_result = await self.tts.synthesize(
                 ctx.script.script,
-                language=language,
+                language=tts_language,
                 out_dir=ws,
-                voice=tts_voice,
+                voice=tts_voice_for_task,
                 provider=tts_provider,
             )
 

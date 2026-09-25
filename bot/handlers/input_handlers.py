@@ -85,7 +85,7 @@ def register_input_handlers(app: Client) -> None:
             reply_markup=kb,
         )
 
-    @app.on_message(filters.video | filters.document & auth)
+    @app.on_message((filters.video | filters.document) & auth)
     async def media_upload(client: Client, message: Message) -> None:
         settings = get_settings()
         user = await ensure_user(message.from_user.id)

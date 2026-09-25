@@ -40,7 +40,6 @@ class TaskStatus(str, enum.Enum):
     CANCELLED = "CANCELLED"
 
 
-# Back-compat alias
 TaskState = TaskStatus
 
 
@@ -87,6 +86,8 @@ class Task(Base):
     mode: Mapped[Optional[PipelineMode]] = mapped_column(Enum(PipelineMode), nullable=True)
     language: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     voice: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    tts_provider: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    tts_voice: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     partition_mode: Mapped[Optional[PartitionMode]] = mapped_column(Enum(PartitionMode), nullable=True)
     export_target: Mapped[Optional[ExportTarget]] = mapped_column(Enum(ExportTarget), nullable=True)
     status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus), default=TaskStatus.QUEUED, index=True)

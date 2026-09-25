@@ -12,6 +12,7 @@ from core.tts.base import BaseTTSProvider, TTSResult
 from core.tts.edge_tts_provider import EdgeTTSProvider
 from core.tts.elevenlabs_provider import ElevenLabsProvider
 from core.tts.openai_tts_provider import OpenAITTSProvider
+from core.tts.local_tts_provider import LocalTTSProvider
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,8 @@ def create_tts_provider(settings: Settings, provider: Optional[str] = None) -> B
         return ElevenLabsProvider(settings)
     if name in ("openai", "openai_tts"):
         return OpenAITTSProvider(settings)
+    if name in ("local", "offline", "espeak", "espeak-ng"):
+        return LocalTTSProvider()
 
     raise TTSError(f"Unknown TTS provider: {name}", retryable=False)
 
@@ -45,6 +48,8 @@ def _canonical_provider(name: str) -> str:
         return "openai"
     if name in ("elevenlabs", "eleven"):
         return "elevenlabs"
+    if name in ("local", "offline", "espeak", "espeak-ng"):
+        return "local"
     return name
 
 
@@ -71,6 +76,8 @@ class TTSFactory:
             return requested_voice
         if provider == "openai":
             return self.settings.openai_tts_voice
+        if provider == "local":
+            return None
         if provider == "elevenlabs":
             return self.settings.elevenlabs_voice_id
         return requested_voice

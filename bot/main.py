@@ -103,6 +103,11 @@ class Application:
             self._oauth_task=asyncio.create_task(self._oauth_server.serve())
         await self.queue.start()
         recovered = await self.queue.recover_stale_tasks()
+        if self.shorts:
+            try:
+                logger.info("Shorts recovery requeued %s projects", await self.shorts.recover())
+            except Exception:
+                logger.exception("Shorts recovery failed")
         logger.info("Startup recovery requeued %s tasks", recovered)
 
         asyncio.create_task(self._orphan_loop())

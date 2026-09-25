@@ -20,20 +20,28 @@ class TaskStatus(str, enum.Enum):
     RECOVERING = "RECOVERING"
     DOWNLOADING = "DOWNLOADING"
     PROBING = "PROBING"
+    VALIDATING = "VALIDATING"
+    EXTRACTING_AUDIO = "EXTRACTING_AUDIO"
     TRANSCRIBING = "TRANSCRIBING"
     SCRIPTING = "SCRIPTING"
     TTS = "TTS"
     AUDIO_PROCESSING = "AUDIO_PROCESSING"
+    MUTE_VIDEO = "MUTE_VIDEO"
+    MIX_AUDIO = "MIX_AUDIO"
     RENDERING = "RENDERING"
     SUBTITLING = "SUBTITLING"
     THUMBNAIL = "THUMBNAIL"
     SEO = "SEO"
-    VALIDATING = "VALIDATING"
+    VALIDATING_OUTPUT = "VALIDATING_OUTPUT"
     UPLOADING = "UPLOADING"
     SCHEDULED = "SCHEDULED"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+
+
+# Back-compat alias
+TaskState = TaskStatus
 
 
 class SourceType(str, enum.Enum):
@@ -78,18 +86,16 @@ class Task(Base):
     source_file: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     mode: Mapped[Optional[PipelineMode]] = mapped_column(Enum(PipelineMode), nullable=True)
     language: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
-    tts_provider: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
-    tts_voice: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    voice: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     partition_mode: Mapped[Optional[PartitionMode]] = mapped_column(Enum(PartitionMode), nullable=True)
     export_target: Mapped[Optional[ExportTarget]] = mapped_column(Enum(ExportTarget), nullable=True)
     status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus), default=TaskStatus.QUEUED, index=True)
-    current_stage: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    priority: Mapped[int] = mapped_column(Integer, default=1)
     progress: Mapped[float] = mapped_column(Float, default=0.0)
-    priority: Mapped[int] = mapped_column(Integer, default=2)
     duration: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     input_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     output_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    attempt: Mapped[int] = mapped_column(Integer, default=0)
     error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     workspace_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

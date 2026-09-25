@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 # Free-tier friendly Groq model IDs (Sept 2026). Tried in order on failure.
 GROQ_FREE_MODELS: Sequence[str] = (
-    "openai/gpt-oss-20b",
     "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
     "qwen/qwen3.8-27b",
     "qwen/qwen3.6-27b",
     "llama-3.1-8b-instant",
@@ -154,7 +154,9 @@ class LLMAgent:
         preferred = (getattr(self.settings, "groq_model", None) or "").strip()
         seen: set[str] = set()
         out: List[str] = []
-        for m in ([preferred] if preferred else []) + list(GROQ_FREE_MODELS):
+        # Prefer the model that has proven reliable with the strict JSON output
+        # contract. A stale GROQ_MODEL=20b should not waste a request before 120b.
+        for m in list(GROQ_FREE_MODELS) + ([preferred] if preferred else []):
             if m and m not in seen:
                 seen.add(m)
                 out.append(m)

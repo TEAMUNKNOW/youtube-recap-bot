@@ -134,6 +134,7 @@ def register_callback_handlers(app: Client) -> None:
                     f"Output: {float(meta.get('output_duration', 0))/60:.1f} min\n"
                     f"Words: {meta.get('word_count', 0)}\n"
                     f"Sync offset: {float(meta.get('sync_offset_seconds', 0)):.2f}s\n"
+                    f"Max chapter drift: {float(meta.get('max_chapter_drift_seconds', 0)):.2f}s\n"
                     f"Sync status: {'✅' if meta.get('sync_within_tolerance') else '⚠️'}"
                 )
                 await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data=f"{CB_RESULT_BACK}:{task_id}")]]))
@@ -144,7 +145,7 @@ def register_callback_handlers(app: Client) -> None:
                 offset = float(meta.get("sync_offset_seconds", 0))
                 ok = bool(meta.get("sync_within_tolerance"))
                 await query.message.edit_text(
-                    f"{'✅' if ok else '⚠️'} <b>Sync Check</b>\n\nNarration/output duration offset: <code>{offset:.2f}s</code>\nTolerance: <code>{get_settings().av_sync_tolerance_seconds:.1f}s</code>",
+                    f"{'✅' if ok else '⚠️'} <b>Sync Check</b>\n\nNarration/output offset: <code>{offset:.2f}s</code>\nMax chapter drift: <code>{float(meta.get('max_chapter_drift_seconds', 0)):.2f}s</code>\nTolerance: <code>{get_settings().av_sync_tolerance_seconds:.1f}s</code>",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🧪 Raw Files", callback_data=f"{CB_RESULT_RAW}:{task_id}"), InlineKeyboardButton("🔙 Back", callback_data=f"{CB_RESULT_BACK}:{task_id}")]])
                 )
                 await query.answer()

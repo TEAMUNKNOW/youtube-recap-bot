@@ -49,6 +49,21 @@ logger = logging.getLogger(__name__)
 auth = authorized_users_filter()
 
 
+def main_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎬 Create Recap", callback_data="menu:create")],
+        [InlineKeyboardButton("🎬 Shorts Factory", callback_data="sf:menu")],
+        [
+            InlineKeyboardButton("🔗 YouTube URL", callback_data="menu:url"),
+            InlineKeyboardButton("📤 Upload Video", callback_data="menu:upload"),
+        ],
+        [
+            InlineKeyboardButton("📊 My Tasks", callback_data="menu:tasks"),
+            InlineKeyboardButton("❓ Help", callback_data=CB_MENU_HELP),
+        ],
+    ])
+
+
 async def _load_task_for_user(task_id: int, telegram_id: int) -> Task | None:
     user = await ensure_user(telegram_id)
     async with get_session() as session:

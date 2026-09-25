@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     workspace_root: Path = Field(default=Path("/tmp/youtube_recap"), description="Root directory for task workspaces")
 
     max_concurrent_tasks: int = Field(default=2, ge=1, le=16)
-    max_video_duration_minutes: int = Field(default=180, ge=1)
+    max_video_duration_minutes: int = Field(default=240, ge=1)
     max_input_size_gb: float = Field(default=10.0, gt=0)
     max_output_size_gb: float = Field(default=8.0, gt=0)
     task_timeout_seconds: int = Field(default=7200, ge=60)
@@ -79,7 +79,7 @@ class Settings(BaseSettings):
 
     bgm_directory: Path = Field(default=Path("./assets/bgm"))
     font_directory: Path = Field(default=Path("./assets/fonts"))
-    default_font: str = Field(default="Montserrat-Bold.ttf")
+    default_font: str = Field(default="DejaVuSans.ttf")
 
     av_sync_tolerance_seconds: float = Field(default=8.0, gt=0)
     words_per_minute: int = Field(default=135, ge=80, le=200)

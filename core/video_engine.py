@@ -86,8 +86,9 @@ class FFmpegRunner:
                 pass
             raise TimeoutError_(f"{label} timed out after {timeout}s") from exc
         if proc.returncode != 0:
-            err = stderr.decode(errors="replace")[-2000:]
-            raise FFmpegError(f"{label} failed: {err}")
+            raw_err = stderr.decode(errors="replace")
+            err = raw_err[-5000:]
+            raise FFmpegError(f"{label} failed (exit={proc.returncode}): {err}")
 
 
 class VideoEngine:
@@ -135,10 +136,31 @@ class VideoEngine:
         if video_duration is not None and narration_duration is not None:
             diff = narration_duration - video_duration
             if abs(diff) > self.settings.av_sync_tolerance_seconds:
-                logger.warning("AV sync diff %.1fs exceeds tolerance %.1fs (using -shortest)", diff, self.settings.av_sync_tolerance_seconds)
+                logger.info("Source/narration duration differ by %.1fs; output will follow narration duration", diff)
 
         def build_args(vf_str: str, enc: list) -> list:
-            return ["-i", str(muted_video), "-i", str(mixed_audio), "-map", "0:v:0", "-map", "1:a:0", "-vf", vf_str, *enc, "-c:a", "aac", "-b:a", self.settings.export_audio_bitrate, "-movflags", "+faststart", "-shortest", str(output)]
+            args = [
+                "-fflags", "+genpts",
+                "-i", str(muted_video),
+                "-i", str(mixed_audio),
+                "-map", "0:v:0",
+                "-map", "1:a:0",
+                "-vf", vf_str,
+                *enc,
+                "-c:a", "aac",
+                "-b:a", self.settings.export_audio_bitrate,
+                "-map_metadata", "-1",
+                "-avoid_negative_ts", "make_zero",
+            ]
+            # Recaps intentionally use a short narration over the source video.
+            # Explicitly limit output duration so broken/large source timestamps
+            # cannot make -shortest wait indefinitely.
+            if narration_duration and narration_duration > 0:
+                args += ["-t", f"{narration_duration:.3f}"]
+            else:
+                args += ["-shortest"]
+            args += ["-movflags", "+faststart", str(output)]
+            return args
 
         try:
             await self.runner.run(build_args(vf, encoder), label="render_final")

@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-unhinted \
     fontconfig \
     curl \
+    nodejs \
     ca-certificates \
     && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*

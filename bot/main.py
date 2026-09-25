@@ -23,6 +23,8 @@ from core.queue_manager import QueueManager
 from sqlalchemy import select
 from bot.database.models import Task
 from bot.states import CB_RESULT_DETAILS, CB_RESULT_SYNC, CB_RESULT_RAW
+from core.shorts.manager import ShortsManager
+from core.shorts.oauth_server import create_oauth_app
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +41,9 @@ class Application:
         self.user_client: Optional[Client] = None
         self.queue: Optional[QueueManager] = None
         self.pipeline: Optional[Pipeline] = None
+        self.shorts: Optional[ShortsManager] = None
+        self._oauth_server = None
+        self._oauth_task = None
         self._shutdown = asyncio.Event()
 
     async def start(self) -> None:
@@ -70,6 +75,10 @@ class Application:
         )
         self.queue = QueueManager(self.settings, worker=self.pipeline.run)
         self.pipeline.queue = self.queue
+        if self.settings.shorts_enabled:
+            self.shorts = ShortsManager(self.settings)
+            self.bot.shorts_manager = self.shorts  # type: ignore[attr-defined]
+            self.bot.app_settings = self.settings  # type: ignore[attr-defined]
 
         self.bot.queue_manager = self.queue  # type: ignore[attr-defined]
         self.bot.app_settings = self.settings  # type: ignore[attr-defined]
@@ -86,6 +95,12 @@ class Application:
                 logger.warning("User client failed to start: %s", exc)
                 self.user_client = None
 
+        if self.settings.shorts_enabled and self.settings.youtube_oauth_redirect_uri:
+            import uvicorn
+            oauth_app=create_oauth_app(self.settings,self.bot)
+            config=uvicorn.Config(oauth_app,host="0.0.0.0",port=int(self.settings.youtube_oauth_redirect_uri.rsplit(":",1)[-1].split("/")[0]) if ":" in self.settings.youtube_oauth_redirect_uri.split("//")[-1] else 8081,log_level="warning")
+            self._oauth_server=uvicorn.Server(config)
+            self._oauth_task=asyncio.create_task(self._oauth_server.serve())
         await self.queue.start()
         recovered = await self.queue.recover_stale_tasks()
         logger.info("Startup recovery requeued %s tasks", recovered)
@@ -191,6 +206,10 @@ class Application:
         self._shutdown.set()
         if self.queue:
             await self.queue.stop()
+        if self._oauth_server:
+            self._oauth_server.should_exit=True
+        if self._oauth_task:
+            await asyncio.gather(self._oauth_task,return_exceptions=True)
         if self.user_client:
             await self.user_client.stop()
         if self.bot:

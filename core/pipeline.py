@@ -93,6 +93,8 @@ class Pipeline:
                 raise BotError(f"Task {task_id} not found", retryable=False)
             language = task.language or "en"
             mode = task.mode.value if task.mode else "AI_RECAP"
+            tts_provider = task.tts_provider
+            tts_voice = task.tts_voice
             source_type = task.source_type
             source_url = task.source_url
             source_file = task.source_file
@@ -146,7 +148,11 @@ class Pipeline:
 
             await self._stage(task_id, "TTS", 55)
             ctx.tts_result = await self.tts.synthesize(
-                ctx.script.script, language=language, out_dir=ws
+                ctx.script.script,
+                language=language,
+                out_dir=ws,
+                voice=tts_voice,
+                provider=tts_provider,
             )
 
             narr_dur = float(ctx.tts_result.duration or 0)

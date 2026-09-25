@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio,logging
+import asyncio,logging,random
 from datetime import datetime,timezone
 from pathlib import Path
 from bot.config import Settings
@@ -8,6 +8,8 @@ from core.shorts.oauth import YouTubeOAuth
 from bot.database.session import get_session
 from sqlalchemy import select
 logger=logging.getLogger(__name__)
+class ShortsQuotaExceeded(RuntimeError): pass
+class ShortsAuthError(RuntimeError): pass
 class ShortsUploader:
     def __init__(self,settings:Settings): self.settings=settings; self.oauth=YouTubeOAuth(settings)
     async def upload(self,account:YouTubeAccount,clip:ShortClip)->str:
@@ -16,13 +18,16 @@ class ShortsUploader:
         async with get_session() as s:
             q=await s.execute(select(Quota).where(Quota.date==today)); row=q.scalar_one_or_none()
             if row is None: row=Quota(date=today); s.add(row); await s.flush()
-            if row.upload_count>=100: raise RuntimeError("YouTube upload quota exhausted for the current daily upload bucket")
+            if row.upload_count>=100: raise ShortsQuotaExceeded("YouTube upload quota exhausted for the current daily upload bucket")
         from googleapiclient.discovery import build
         from googleapiclient.http import MediaFileUpload
         creds=self.oauth.credentials(account)
         if not creds.valid:
             from google.auth.transport.requests import Request
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except Exception as exc:
+                raise ShortsAuthError("YouTube authorization expired or was revoked; reconnect the channel.") from exc
         yt=build("youtube","v3",credentials=creds,cache_discovery=False)
         body={"snippet":{"title":clip.title or f"Part {clip.part_number}","description":clip.description or "","tags":clip.tags or [],"categoryId":"22"},"status":{"privacyStatus":"private"}}
         if clip.scheduled_at:
@@ -34,7 +39,20 @@ class ShortsUploader:
             while resp is None:
                 _,resp=req.next_chunk()
             return resp["id"]
-        video_id=await asyncio.to_thread(work)
+        last_exc=None
+        for attempt in range(5):
+            try:
+                video_id=await asyncio.to_thread(work)
+                break
+            except Exception as exc:
+                last_exc=exc
+                name=getattr(exc,"reason","") or str(exc)
+                if "quotaExceeded" in name or "dailyLimitExceeded" in name:
+                    raise ShortsQuotaExceeded("YouTube quota exceeded; uploads paused until quota is available.") from exc
+                if attempt==4: raise
+                await asyncio.sleep(min(60,2**attempt*2)+random.random())
+        else:
+            raise last_exc or RuntimeError("YouTube upload failed")
         async with get_session() as s:
             q=await s.execute(select(Quota).where(Quota.date==today)); row=q.scalar_one(); row.upload_count+=1; row.youtube_units+=1; row.request_count+=1
         return video_id

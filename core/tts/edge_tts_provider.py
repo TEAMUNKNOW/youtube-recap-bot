@@ -25,7 +25,8 @@ _FALLBACK_VOICES = {
 class EdgeTTSProvider(BaseTTSProvider):
     name = "edge"
 
-    def __init__(self, default_voices: Optional[dict[str, str]] = None) -> None:
+    def __init__(self, default_voices: Optional[dict[str, str]] = None, proxy: Optional[str] = None) -> None:
+        self.proxy = proxy
         self.default_voices = default_voices or {
             "hi": "hi-IN-MadhurNeural",
             "en": "en-US-ChristopherNeural",

@@ -103,7 +103,15 @@ class VideoEngine:
 
     async def mute_video(self, video: Path, out_video: Path) -> Path:
         out_video.parent.mkdir(parents=True, exist_ok=True)
-        await self.runner.run(["-i", str(video), "-c:v", "copy", "-an", str(out_video)], label="mute_video")
+        await self.runner.run([
+            "-fflags", "+genpts",
+            "-i", str(video),
+            "-map", "0:v:0",
+            "-c:v", "copy",
+            "-an",
+            "-avoid_negative_ts", "make_zero",
+            str(out_video),
+        ], label="mute_video")
         return out_video
 
     def pick_bgm(self) -> Optional[Path]:

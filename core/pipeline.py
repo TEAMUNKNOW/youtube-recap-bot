@@ -216,6 +216,7 @@ class Pipeline:
                 ctx.subtitles_path,
                 script_text=ctx.script.script,
                 use_words=False,
+                duration=narr_dur,
             )
             ctx.debug_paths.append(ctx.subtitles_path)
 

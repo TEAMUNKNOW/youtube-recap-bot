@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from pyrogram import Client
-from pyrogram.types import Message
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.config import Settings, get_settings
 from bot.database.session import close_db, get_session, init_db
@@ -22,6 +22,7 @@ from core.progress import format_completed, format_failed, format_progress
 from core.queue_manager import QueueManager
 from sqlalchemy import select
 from bot.database.models import Task
+from bot.states import CB_RESULT_DETAILS, CB_RESULT_SYNC, CB_RESULT_RAW
 
 logging.basicConfig(
     level=logging.INFO,
@@ -111,6 +112,14 @@ class Application:
                     )
                     if task.output_video_path and Path(task.output_video_path).exists():
                         await self._send_output(task)
+                        kb = InlineKeyboardMarkup([
+                            [InlineKeyboardButton("📊 Details", callback_data=f"{CB_RESULT_DETAILS}:{task.id}"), InlineKeyboardButton("🔍 Sync", callback_data=f"{CB_RESULT_SYNC}:{task.id}")],
+                            [InlineKeyboardButton("🧪 Raw Files", callback_data=f"{CB_RESULT_RAW}:{task.id}")],
+                        ])
+                        try:
+                            await self.bot.edit_message_reply_markup(task.chat_id, task.status_message_id, reply_markup=kb)
+                        except Exception:
+                            logger.debug("Could not attach result keyboard", exc_info=True)
                 elif stage == "FAILED":
                     text = format_failed(task_id, extra or "Failed")
                     await self.bot.edit_message_text(

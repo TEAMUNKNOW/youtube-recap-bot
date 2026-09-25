@@ -69,7 +69,10 @@ class LLMAgent:
         language: str = "en",
         mode: str = "AI_RECAP",
     ) -> RecapScript:
-        target_words = max(50, int((duration_seconds / 60.0) * self.settings.words_per_minute))
+        target_words = min(
+            1800,
+            max(50, int((duration_seconds / 60.0) * self.settings.words_per_minute)),
+        )
         lang_name = {
             "hi": "Hindi",
             "en": "English",
@@ -89,7 +92,7 @@ class LLMAgent:
             f"(this is a target, not a hard limit).\n"
             f"Output language: {lang_name}.\n"
             f"Mode: {mode}.\n\n"
-            f"Transcript (may be truncated):\n{transcript_text[:12000]}\n\n"
+            f"Transcript:\n{self._prepare_transcript(transcript_text)}\n\n"
             "Return JSON with keys: title (string), script (string, the full narration), "
             "word_count (int), tone (string), chapters (array of {title, start_seconds}), "
             "key_points (array of strings)."
@@ -318,6 +321,22 @@ class LLMAgent:
             return data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMError("Malformed OpenAI response", retryable=True) from exc
+
+    @staticmethod
+    def _prepare_transcript(text: str, max_chars: int = 60000) -> str:
+        """Keep long transcripts representative without exploding LLM context."""
+        text = text.strip()
+        if len(text) <= max_chars:
+            return text
+        third = max_chars // 3
+        middle_start = max(0, (len(text) - third) // 2)
+        return (
+            text[:third]
+            + "\n\n[...middle of transcript omitted for context...]\n\n"
+            + text[middle_start:middle_start + third]
+            + "\n\n[...later transcript omitted for context...]\n\n"
+            + text[-third:]
+        )
 
     @staticmethod
     def _extract_json(text: str) -> dict[str, Any]:

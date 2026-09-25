@@ -39,8 +39,6 @@ class EdgeTTSProvider(BaseTTSProvider):
         t = text.strip()
         t = re.sub(r"<[^>]+>", " ", t)
         t = re.sub(r"\s+", " ", t)
-        if len(t) > 3000:
-            t = t[:3000].rsplit(" ", 1)[0] + "."
         return t
 
     async def synthesize(
@@ -79,9 +77,7 @@ class EdgeTTSProvider(BaseTTSProvider):
                 try:
                     if output_path.exists():
                         output_path.unlink(missing_ok=True)
-                    communicate = edge_tts.Communicate(
-                        cleaned, voice_id, rate="+0%", volume="+0%"
-                    )
+                    communicate = edge_tts.Communicate(cleaned, voice_id, rate="+0%", volume="+0%", proxy=self.proxy, connect_timeout=15, receive_timeout=90)
                     await communicate.save(str(output_path))
                     if output_path.exists() and output_path.stat().st_size >= 100:
                         duration = await self._probe_duration(output_path)

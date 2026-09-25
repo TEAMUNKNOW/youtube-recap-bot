@@ -138,7 +138,7 @@ class Settings(BaseSettings):
     def _ensure_path(cls, v: object) -> Path:
         return Path(v) if not isinstance(v, Path) else v
 
-    @field_validator("youtube_client_secrets", "youtube_token_file", "cookie_file", mode="before")
+    @field_validator("youtube_client_secrets", "youtube_token_file", "cookie_file", "omnivoice_ref_audio", mode="before")
     @classmethod
     def _optional_path(cls, v: object) -> Optional[Path]:
         if v is None or v == "" or v == "None":

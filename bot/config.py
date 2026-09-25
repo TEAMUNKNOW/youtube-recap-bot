@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     openai_tts_voice: str = Field(default="alloy")
     elevenlabs_model: str = Field(default="eleven_multilingual_v2")
 
-    gemini_model: str = Field(default="gemini-2.0-flash")
+    gemini_model: str = Field(default="gemini-3.8-flash")
     openai_model: str = Field(default="gpt-4o-mini")
     llm_provider: str = Field(default="gemini")
 

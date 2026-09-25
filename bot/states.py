@@ -36,3 +36,18 @@ CB_EXPORT_YT = "e:yt"
 CB_EXPORT_BOTH = "e:b"
 CB_RIGHTS_ACK = "r:ok"
 CB_CANCEL = "x:c"
+
+
+# Navigation/result actions
+CB_MENU_HELP = "h"
+CB_MENU_HOW = "h:how"
+CB_MENU_VOICE = "h:voice"
+CB_MENU_SYNC = "h:sync"
+CB_MENU_THUMB = "h:thumb"
+CB_MENU_OUTPUT = "h:out"
+CB_MENU_SETTINGS = "h:set"
+CB_RESULT_DETAILS = "r:d"
+CB_RESULT_SYNC = "r:s"
+CB_RESULT_RAW = "r:r"
+CB_RESULT_RETRY = "r:y"
+CB_RESULT_BACK = "r:b"

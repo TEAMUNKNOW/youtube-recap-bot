@@ -166,7 +166,11 @@ class Pipeline:
                     mode=mode,
                 )
                 ctx.tts_result = await self.tts.synthesize(
-                    ctx.script.script, language=language, out_dir=ws
+                    ctx.script.script,
+                    language=language,
+                    out_dir=ws,
+                    voice=tts_voice,
+                    provider=tts_provider,
                 )
                 narr_dur = float(ctx.tts_result.duration or 0)
 

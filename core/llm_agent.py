@@ -130,7 +130,7 @@ class LLMAgent:
                 mode=mode,
             )
 
-        target_wpm = 125
+        target_wpm = max(110, min(145, self.settings.words_per_minute))
         chunk_seconds = 480.0
         chunks: list[tuple[float, float, str]] = []
         start = float(getattr(segments[0], "start", 0.0)) if segments else 0.0
@@ -169,9 +169,9 @@ class LLMAgent:
                 "Keep continuity with the supplied part. Output valid JSON only."
             )
             user = (
-                f"Language: {lang_name}. Part {index}/{len(chunks)}. Source time: {start_s:.1f}-{end_s:.1f}s.\\n"
-                f"Target narration: about {target_words} words.\\n"
-                f"Transcript for this part:\\n{self._prepare_transcript(chunk_text, 14000)}\\n\\n"
+                f"Language: {lang_name}. Part {index}/{len(chunks)}. Source time: {start_s:.1f}-{end_s:.1f}s.\n"
+                f"Target narration: about {target_words} words.\n"
+                f"Transcript for this part:\n{self._prepare_transcript(chunk_text, 14000)}\n\n"
                 "Return JSON with keys: title, script, word_count, tone, chapters, key_points. "
                 "The script must be natural spoken narration, not an article."
             )
@@ -187,7 +187,7 @@ class LLMAgent:
 
         return RecapScript(
             title=titles[0] if titles else "Video Recap",
-            script="\\n\\n".join(scripts),
+            script="\n\n".join(scripts),
             word_count=sum(len(s.split()) for s in scripts),
             tone="cinematic storyteller",
             chapters=chapters,
@@ -339,6 +339,7 @@ class LLMAgent:
             ],
             "temperature": 0.7,
             "response_format": {"type": "json_object"},
+            "reasoning_effort": "low",
         }
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, headers=headers, json=body)

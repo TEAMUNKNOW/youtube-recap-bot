@@ -199,7 +199,11 @@ class VideoEngine:
             # be recoverable, so retry once without burn-in before failing the task.
             if subtitles and Path(subtitles).exists() and "ass=" in vf:
                 logger.warning("Final render failed; retrying once without subtitle burn-in")
-                vf_nosub = ",".join(p for p in vf.split(",") if not p.startswith("ass="))
+                # Do not split the serialized filter graph on commas: FFmpeg
+                # expressions such as min(iw,1280) and fps=min(30,30) contain
+                # commas themselves. Removing the subtitle stage from the
+                # original list keeps the filter graph syntactically intact.
+                vf_nosub = ",".join(p for p in vf_parts if not p.startswith("ass="))
                 try:
                     await self.runner.run(build_args(vf_nosub, self._video_encoder_args()), label="render_final_nosub")
                     return output

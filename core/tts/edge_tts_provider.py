@@ -118,13 +118,14 @@ class EdgeTTSProvider(BaseTTSProvider):
                                 exc,
                             )
                         if attempt < attempts:
-                            await asyncio.sleep(min(8.0, 1.5 * (2 ** (attempt - 1))) + random.random())
+                            delay = min(15.0, 2.0 * (2 ** (attempt - 1))) + random.uniform(0.5, 1.5)
+                            await asyncio.sleep(delay)
 
             raise TTSError(f"Edge TTS chunk failed: {last_exc}", retryable=True)
 
         try:
             duration = await synthesize_chunked(
-                cleaned, output_path, max_chars=2500, concurrency=1,
+                cleaned, output_path, max_chars=1800, concurrency=1,
                 synthesize_one=synth_one,
             )
         except Exception as exc:

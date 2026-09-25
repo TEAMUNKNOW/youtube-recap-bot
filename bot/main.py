@@ -98,7 +98,7 @@ class Application:
         if self.settings.shorts_enabled and self.settings.youtube_oauth_redirect_uri:
             import uvicorn
             oauth_app=create_oauth_app(self.settings,self.bot)
-            config=uvicorn.Config(oauth_app,host="0.0.0.0",port=int(self.settings.youtube_oauth_redirect_uri.rsplit(":",1)[-1].split("/")[0]) if ":" in self.settings.youtube_oauth_redirect_uri.split("//")[-1] else 8081,log_level="warning")
+            config=uvicorn.Config(oauth_app,host=self.settings.shorts_oauth_bind_host,port=self.settings.shorts_oauth_bind_port,log_level="warning")
             self._oauth_server=uvicorn.Server(config)
             self._oauth_task=asyncio.create_task(self._oauth_server.serve())
         await self.queue.start()

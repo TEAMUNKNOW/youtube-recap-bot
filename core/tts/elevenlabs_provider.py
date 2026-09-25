@@ -10,6 +10,7 @@ from typing import List, Optional
 from bot.config import Settings
 from bot.exceptions import TTSError
 from core.tts.base import BaseTTSProvider, TTSResult, VoiceInfo
+from core.tts.audio_merge import synthesize_chunked
 
 logger = logging.getLogger(__name__)
 
@@ -35,27 +36,32 @@ class ElevenLabsProvider(BaseTTSProvider):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         if output_path.suffix.lower() not in (".mp3", ".wav"):
             output_path = output_path.with_suffix(".mp3")
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-        headers = {
-            "xi-api-key": self.settings.elevenlabs_api_key or "",
-            "Content-Type": "application/json",
-            "Accept": "audio/mpeg",
-        }
-        body = {
-            "text": text,
-            "model_id": self.settings.elevenlabs_model,
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
-        }
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            resp = await client.post(url, headers=headers, json=body)
-        if resp.status_code == 429:
-            raise TTSError("ElevenLabs rate limited", retryable=True)
-        if resp.status_code >= 500:
-            raise TTSError(f"ElevenLabs server error {resp.status_code}", retryable=True)
-        if resp.status_code != 200:
-            raise TTSError(f"ElevenLabs error {resp.status_code}: {resp.text[:200]}", retryable=False)
-        output_path.write_bytes(resp.content)
-        duration = await self._probe_duration(output_path)
+
+        async def synth_one(chunk: str, path: Path) -> None:
+            url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+            headers = {"xi-api-key": self.settings.elevenlabs_api_key or "", "Content-Type": "application/json", "Accept": "audio/mpeg"}
+            body = {"text": chunk, "model_id": self.settings.elevenlabs_model, "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                resp = await client.post(url, headers=headers, json=body)
+            if resp.status_code == 429:
+                raise TTSError("ElevenLabs rate limited", retryable=True)
+            if resp.status_code >= 500:
+                raise TTSError(f"ElevenLabs server error {resp.status_code}", retryable=True)
+            if resp.status_code != 200:
+                raise TTSError(f"ElevenLabs error {resp.status_code}: {resp.text[:200]}", retryable=False)
+            path.write_bytes(resp.content)
+
+        try:
+            duration = await synthesize_chunked(
+                text, output_path, max_chars=4500, concurrency=2,
+                synthesize_one=synth_one,
+            )
+        except TTSError:
+            raise
+        except Exception as exc:
+            raise TTSError(f"ElevenLabs TTS failed: {exc}", retryable=True) from exc
+        if duration <= 0:
+            raise TTSError("ElevenLabs produced invalid audio", retryable=True)
         return TTSResult(path=str(output_path), duration=duration, provider=self.name, voice=voice_id)
 
     async def list_voices(self, language: Optional[str] = None) -> List[VoiceInfo]:

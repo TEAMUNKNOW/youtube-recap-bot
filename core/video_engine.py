@@ -97,7 +97,7 @@ class VideoEngine:
 
     async def extract_audio(self, video: Path, out_wav: Path) -> Path:
         out_wav.parent.mkdir(parents=True, exist_ok=True)
-        await self.runner.run(["-i", str(video), "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", str(out_wav)], label="extract_audio")
+        await self.runner.run(["-i", str(video), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "libmp3lame", "-b:a", "64k", str(out_wav)], label="extract_audio")
         return out_wav
 
     async def mute_video(self, video: Path, out_video: Path) -> Path:

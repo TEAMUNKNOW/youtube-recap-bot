@@ -52,7 +52,18 @@ async def dispatch(client,query):
         text="📊 <b>Shorts Queue</b>\n\n" + ("\n".join(f"#{p.id} · {p.status.value} · {p.processed_parts}/{p.total_parts}" for p in ps) if ps else "No Shorts projects yet.")
         await query.message.edit_text(text,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]])); await query.answer(); return
     if data=="sf:schedule":
-        await query.message.edit_text("📅 <b>Schedule</b>\n\nUse Auto Best Time when channel analytics are available; otherwise the configured fallback schedule is used. Scheduling is timezone-aware and stored in UTC.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]])); await query.answer(); return
+        user=await ensure_user(uid)
+        async with get_session() as s:
+            q=await s.execute(select(ShortsProject).where(ShortsProject.user_id==user.id).order_by(ShortsProject.id.desc()).limit(1)); p=q.scalar_one_or_none()
+        if not p:
+            await query.message.edit_text("📅 No Shorts project yet.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]])); await query.answer(); return
+        await query.message.edit_text(f"📅 <b>Project #{p.id}</b>\n\nChoose Shorts per day:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("2 / day",callback_data=f"sf:limit:{p.id}:2"),InlineKeyboardButton("3 / day",callback_data=f"sf:limit:{p.id}:3"),InlineKeyboardButton("5 / day",callback_data=f"sf:limit:{p.id}:5")],[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]])); await query.answer(); return
+    if len(data.split(":"))>=4 and data.split(":")[1]=="limit":
+        pid=int(data.split(":")[2]); limit=int(data.split(":")[3]); p=await _project(pid,uid)
+        if not p: await query.answer("Project not found",show_alert=True); return
+        async with get_session() as s:
+            p=await s.get(ShortsProject,pid); p.daily_limit=max(1,min(5,limit))
+        await query.message.edit_text(f"📅 Project #{pid}: <b>{limit} Shorts/day</b> selected.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("▶️ Start",callback_data=f"sf:start:{pid}")],[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]])); await query.answer(); return
     if data=="sf:back":
         await query.message.edit_text("Choose an option from the main menu."); await query.answer(); return
     parts=data.split(":")

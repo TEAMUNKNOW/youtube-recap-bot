@@ -175,12 +175,20 @@ class VideoEngine:
                     return output
                 except FFmpegError as exc2:
                     exc, msg = exc2, str(exc2).lower()
-            if any(x in msg for x in ("glyph", "fontselect", "font", "ass", "libass")):
-                logger.warning("Subtitle burn-in failed; rendering without subtitles")
+            # A subtitle filter can fail for many reasons (fontconfig, libass,
+            # malformed glyphs, or a bad ASS event). The video itself should still
+            # be recoverable, so retry once without burn-in before failing the task.
+            if subtitles and Path(subtitles).exists() and "ass=" in vf:
+                logger.warning("Final render failed; retrying once without subtitle burn-in")
                 vf_nosub = ",".join(p for p in vf.split(",") if not p.startswith("ass="))
-                await self.runner.run(build_args(vf_nosub, self._video_encoder_args()), label="render_final_nosub")
-            else:
-                raise
+                try:
+                    await self.runner.run(build_args(vf_nosub, self._video_encoder_args()), label="render_final_nosub")
+                    return output
+                except FFmpegError as exc2:
+                    raise FFmpegError(
+                        f"render_final failed; subtitle-free retry also failed: {exc2}"
+                    ) from exc2
+            raise
         return output
 
     async def validate_output(self, path: Path) -> MediaInfo:

@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 from typing import Optional
 class ShortsScheduler:
     def __init__(self,tz:str="Asia/Kolkata"): self.tz=ZoneInfo(tz)
-    def slots(self,start:Optional[datetime],count:int,limit:int,times:list[str]|None=None)->list[datetime]:
+    def slots(self,start:Optional[datetime],count:int,limit:int,times:list[str]|None=None,preferred_weekdays:list[int]|None=None)->list[datetime]:
         if count<=0:return []
         base=start or datetime.now(timezone.utc)
         if base.tzinfo is None: base=base.replace(tzinfo=timezone.utc)
@@ -12,6 +12,8 @@ class ShortsScheduler:
         parsed=[time.fromisoformat(x) for x in raw[:limit]]
         out=[]; day=now.date(); cursor=now
         while len(out)<count:
+            if preferred_weekdays and day.weekday() not in preferred_weekdays:
+                day+=timedelta(days=1); continue
             for t in parsed:
                 candidate=datetime.combine(day,t,tzinfo=self.tz)
                 if candidate>cursor+timedelta(minutes=5): out.append(candidate)

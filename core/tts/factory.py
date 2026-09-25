@@ -23,7 +23,8 @@ def create_tts_provider(settings: Settings, provider: Optional[str] = None) -> B
                 "en": settings.english_voice,
                 "bn": settings.bengali_voice,
                 "es": settings.spanish_voice,
-            }
+            },
+            proxy=settings.proxy_url,
         )
     if name in ("elevenlabs", "eleven"):
         return ElevenLabsProvider(settings)

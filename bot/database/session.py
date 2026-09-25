@@ -36,6 +36,8 @@ async def _sqlite_add_missing_columns(conn) -> None:
     rows = result.fetchall()
     existing = {row[1] for row in rows}  # column name
     alters = []
+    if "current_stage" not in existing:
+        alters.append("ALTER TABLE tasks ADD COLUMN current_stage VARCHAR(64)")
     if "tts_provider" not in existing:
         alters.append("ALTER TABLE tasks ADD COLUMN tts_provider VARCHAR(32)")
     if "tts_voice" not in existing:

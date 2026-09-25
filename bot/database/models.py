@@ -117,6 +117,82 @@ class Task(Base):
     user: Mapped["User"] = relationship(back_populates="tasks")
 
 
+
+class YouTubeAccount(Base):
+    __tablename__ = "youtube_accounts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    channel_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    channel_title: Mapped[str] = mapped_column(String(255), nullable=False)
+    encrypted_refresh_token: Mapped[str] = mapped_column(Text, nullable=False)
+    scopes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (Index("ix_youtube_accounts_user_channel", "user_id", "channel_id", unique=True),)
+
+class ShortsProjectStatus(str, enum.Enum):
+    CREATED="CREATED"; ANALYZING="ANALYZING"; MANIFEST_READY="MANIFEST_READY"; RUNNING="RUNNING"; PAUSED="PAUSED"; SCHEDULED="SCHEDULED"; COMPLETED="COMPLETED"; FAILED="FAILED"; STOPPED="STOPPED"
+class ShortsSelectionMode(str, enum.Enum):
+    CONTINUOUS="CONTINUOUS"; HIGHLIGHT="HIGHLIGHT"
+class ShortsClipStatus(str, enum.Enum):
+    PLANNED="PLANNED"; RENDERING="RENDERING"; RENDERED="RENDERED"; UPLOADING="UPLOADING"; UPLOADED="UPLOADED"; SCHEDULED="SCHEDULED"; PUBLISHED="PUBLISHED"; FAILED="FAILED"; DELETED="DELETED"
+
+class ShortsProject(Base):
+    __tablename__="shorts_projects"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True,autoincrement=True)
+    user_id: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False,index=True)
+    source_file: Mapped[Optional[str]]=mapped_column(Text); source_url: Mapped[Optional[str]]=mapped_column(Text)
+    source_duration: Mapped[float]=mapped_column(Float,default=0.0); clip_duration: Mapped[int]=mapped_column(Integer,default=60)
+    playback_speed: Mapped[float]=mapped_column(Float,default=1.5); output_format: Mapped[str]=mapped_column(String(32),default="mp4")
+    total_parts: Mapped[int]=mapped_column(Integer,default=0); processed_parts: Mapped[int]=mapped_column(Integer,default=0)
+    status: Mapped[ShortsProjectStatus]=mapped_column(Enum(ShortsProjectStatus),default=ShortsProjectStatus.CREATED,index=True)
+    selection_mode: Mapped[ShortsSelectionMode]=mapped_column(Enum(ShortsSelectionMode),default=ShortsSelectionMode.CONTINUOUS)
+    daily_limit: Mapped[int]=mapped_column(Integer,default=3); timezone: Mapped[str]=mapped_column(String(64),default="Asia/Kolkata")
+    schedule_mode: Mapped[str]=mapped_column(String(32),default="fallback"); retention_days: Mapped[int]=mapped_column(Integer,default=1)
+    keep_original: Mapped[bool]=mapped_column(Boolean,default=True); keep_rendered: Mapped[bool]=mapped_column(Boolean,default=False)
+    chat_id: Mapped[Optional[int]]=mapped_column(Integer); status_message_id: Mapped[Optional[int]]=mapped_column(Integer)
+    workspace_path: Mapped[Optional[str]]=mapped_column(Text); error: Mapped[Optional[str]]=mapped_column(Text)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now(),index=True)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now(),onupdate=func.now())
+
+class ShortClip(Base):
+    __tablename__="short_clips"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True,autoincrement=True)
+    project_id: Mapped[int]=mapped_column(ForeignKey("shorts_projects.id"),nullable=False,index=True)
+    part_number: Mapped[int]=mapped_column(Integer,nullable=False); source_start: Mapped[float]=mapped_column(Float,nullable=False); source_end: Mapped[float]=mapped_column(Float,nullable=False)
+    target_duration: Mapped[float]=mapped_column(Float,nullable=False); actual_duration: Mapped[Optional[float]]=mapped_column(Float)
+    selection_mode: Mapped[ShortsSelectionMode]=mapped_column(Enum(ShortsSelectionMode),nullable=False)
+    selection_reason: Mapped[Optional[str]]=mapped_column(Text); overlap_allowed: Mapped[bool]=mapped_column(Boolean,default=False)
+    chapter: Mapped[Optional[str]]=mapped_column(String(255)); title: Mapped[Optional[str]]=mapped_column(String(100))
+    description: Mapped[Optional[str]]=mapped_column(Text); tags: Mapped[list[str]]=mapped_column(JSON,default=list); hashtags: Mapped[list[str]]=mapped_column(JSON,default=list)
+    local_path: Mapped[Optional[str]]=mapped_column(Text); thumbnail_path: Mapped[Optional[str]]=mapped_column(Text)
+    status: Mapped[ShortsClipStatus]=mapped_column(Enum(ShortsClipStatus),default=ShortsClipStatus.PLANNED,index=True)
+    youtube_video_id: Mapped[Optional[str]]=mapped_column(String(64),index=True); scheduled_at: Mapped[Optional[datetime]]=mapped_column(DateTime(timezone=True),index=True)
+    published_at: Mapped[Optional[datetime]]=mapped_column(DateTime(timezone=True)); error: Mapped[Optional[str]]=mapped_column(Text); attempt: Mapped[int]=mapped_column(Integer,default=0)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now()); updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now(),onupdate=func.now())
+    __table_args__=(Index("ix_short_clips_project_part","project_id","part_number",unique=True),Index("ix_short_clips_status_schedule","status","scheduled_at"))
+
+class ShortsSchedule(Base):
+    __tablename__="shorts_schedules"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True,autoincrement=True); project_id: Mapped[int]=mapped_column(ForeignKey("shorts_projects.id"),nullable=False,index=True)
+    daily_limit: Mapped[int]=mapped_column(Integer,default=3); auto_best_time: Mapped[bool]=mapped_column(Boolean,default=True); fallback_times: Mapped[list[str]]=mapped_column(JSON,default=list)
+    timezone: Mapped[str]=mapped_column(String(64),default="Asia/Kolkata"); reason: Mapped[Optional[str]]=mapped_column(Text); enabled: Mapped[bool]=mapped_column(Boolean,default=True)
+
+class ShortsSettings(Base):
+    __tablename__="shorts_settings"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True,autoincrement=True); user_id: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False,index=True)
+    default_duration: Mapped[int]=mapped_column(Integer,default=60); default_speed: Mapped[float]=mapped_column(Float,default=1.5); daily_limit: Mapped[int]=mapped_column(Integer,default=3)
+    resolution: Mapped[str]=mapped_column(String(16),default="1080x1920"); fps: Mapped[str]=mapped_column(String(16),default="source"); bitrate: Mapped[str]=mapped_column(String(32),default="auto")
+    audio_bitrate: Mapped[str]=mapped_column(String(16),default="128k"); crop_mode: Mapped[str]=mapped_column(String(32),default="smart"); thumbnail_mode: Mapped[str]=mapped_column(String(32),default="auto")
+    timezone: Mapped[str]=mapped_column(String(64),default="Asia/Kolkata"); retention_days: Mapped[int]=mapped_column(Integer,default=1); auto_best_time: Mapped[bool]=mapped_column(Boolean,default=True)
+    __table_args__=(Index("ix_shorts_settings_user","user_id",unique=True),)
+
+class ShortsOAuthState(Base):
+    __tablename__="shorts_oauth_states"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True,autoincrement=True); state: Mapped[str]=mapped_column(String(128),unique=True,index=True); user_id: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False,index=True)
+    code_verifier: Mapped[Optional[str]]=mapped_column(Text); created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now(),index=True); expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),nullable=False,index=True)
+
 class Quota(Base):
     __tablename__ = "quota"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

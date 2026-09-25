@@ -84,22 +84,61 @@ def register_callback_handlers(app: Client) -> None:
                     [InlineKeyboardButton("⚙️ Settings", callback_data=CB_MENU_SETTINGS)],
                 ])
             else:
-                kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Help", callback_data=CB_MENU_HELP)]])
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Help", callback_data=CB_MENU_HELP)],
+                    [InlineKeyboardButton("🏠 Home", callback_data="menu:home")],
+                ])
             await query.message.edit_text(f"{title}\n\n{body}", reply_markup=kb)
             await query.answer()
             return
+        if data == "menu:home":
+            await query.message.edit_text(
+                "👋 <b>YouTube Recap & Video Automation</b>\n\nChoose an option below.",
+                reply_markup=main_menu_keyboard(),
+            )
+            await query.answer()
+            return
+
         if data.startswith("menu:"):
             action = data.split(":", 1)[1]
+            if action == "tasks":
+                user = await ensure_user(query.from_user.id)
+                async with get_session() as session:
+                    result = await session.execute(
+                        select(Task)
+                        .where(Task.user_id == user.id)
+                        .order_by(Task.id.desc())
+                        .limit(10)
+                    )
+                    tasks = result.scalars().all()
+                rows = []
+                if tasks:
+                    for t in tasks:
+                        rows.append([
+                            InlineKeyboardButton(
+                                f"#{t.id} · {t.status.value}",
+                                callback_data=f"{CB_RESULT_DETAILS}:{t.id}",
+                            )
+                        ])
+                    body = "📊 <b>My Tasks</b>\n\nSelect a task:"
+                else:
+                    body = "📊 <b>My Tasks</b>\n\nNo tasks yet."
+                rows.append([InlineKeyboardButton("◀️ Back", callback_data="menu:home")])
+                await query.message.edit_text(body, reply_markup=InlineKeyboardMarkup(rows))
+                await query.answer()
+                return
+
             prompts = {
                 "create": "🎬 <b>Create Recap</b>\n\nSend a YouTube URL or upload a video file.",
                 "url": "🔗 <b>YouTube URL</b>\n\nSend the YouTube link in your next message.",
                 "upload": "📤 <b>Upload Video</b>\n\nSend the video/document in your next message.",
-                "voice": "🎙️ <b>Voice</b>\n\nVoice is selected per task after you provide the source.",
-                "lang": "🌐 <b>Language</b>\n\nLanguage is selected per task after the source is received.",
-                "thumb": "🖼️ <b>Thumbnail</b>\n\nThumbnail is generated automatically from story/chapter moments.",
-                "tasks": "📊 <b>My Tasks</b>\n\nUse /tasks for recent tasks and /status for active processing.",
             }
-            await query.message.edit_text(prompts.get(action, "Choose an option."))
+            await query.message.edit_text(
+                prompts.get(action, "Choose an option."),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("◀️ Back", callback_data="menu:home")]
+                ]),
+            )
             await query.answer()
             return
         if ":" not in data:

@@ -36,10 +36,25 @@ class ShortsManager:
         async with get_session() as s:
             p=await s.get(ShortsProject,pid)
             if p: p.status=ShortsProjectStatus.STOPPED
+    async def recover(self)->int:
+        recovered=0
+        async with get_session() as s:
+            q=await s.execute(select(ShortsProject).where(ShortsProject.status.in_([ShortsProjectStatus.ANALYZING,ShortsProjectStatus.MANIFEST_READY,ShortsProjectStatus.RUNNING])))
+            ids=[p.id for p in q.scalars().all()]
+        for pid in ids:
+            await self.start(pid); recovered+=1
+        return recovered
     async def run(self,pid:int)->None:
         async with get_session() as s:
             p=await s.get(ShortsProject,pid)
             if not p:return
+            existing=(await s.execute(select(ShortClip.id).where(ShortClip.project_id==pid).limit(1))).scalar_one_or_none()
+            if existing is not None:
+                p.status=ShortsProjectStatus.MANIFEST_READY
+                source=Path(p.source_file)
+                ws=Path(p.workspace_path)
+                await self.process(pid)
+                return
             p.status=ShortsProjectStatus.ANALYZING; ws=Path(p.workspace_path); ws.mkdir(parents=True,exist_ok=True); source=Path(p.source_file) if p.source_file else None; url=p.source_url
         if source is None:
             source=await Downloader(self.settings).download(url,ws)

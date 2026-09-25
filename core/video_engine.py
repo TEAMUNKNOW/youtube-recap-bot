@@ -135,14 +135,18 @@ class VideoEngine:
         output.parent.mkdir(parents=True, exist_ok=True)
         await self.runner.detect_hw()
         encoder = self._video_encoder_args()
-        w, h = self.settings.export_resolution.split("x")
-        # Never upscale a source just to hit the configured canvas size. Upscaling
-        # a 720p source to 1080p is expensive on CPU-only hosts and can trigger
-        # OOM kills during libx264 encoding. Keep the requested maximum as a cap.
+        # CPU-only Railway containers can be OOM-killed when a 720p source is
+        # accidentally rendered into a 1080p canvas. Bound the render size to
+        # 1280x720 regardless of a stale EXPORT_RESOLUTION environment variable.
+        try:
+            requested_w, requested_h = (int(x) for x in self.settings.export_resolution.split("x", 1))
+        except (ValueError, AttributeError):
+            requested_w, requested_h = 1280, 720
+        max_w = min(max(320, requested_w), 1280)
+        max_h = min(max(240, requested_h), 720)
         vf_parts = [
-            f"scale=w=min(iw\\,{w}):h=min(ih\\,{h}):force_original_aspect_ratio=decrease",
-            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
-            f"fps={self.settings.export_fps}",
+            f"scale=w='min(iw,{max_w})':h='min(ih,{max_h})':force_original_aspect_ratio=decrease",
+            f"fps=min({self.settings.export_fps},30)",
         ]
         if subtitles and Path(subtitles).exists():
             ass_esc = str(subtitles).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
@@ -223,7 +227,14 @@ class VideoEngine:
             return ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", str(self.settings.export_crf), "-b:v", "0"]
         if hw == "h264_qsv":
             return ["-c:v", "h264_qsv", "-global_quality", str(self.settings.export_crf)]
-        return ["-c:v", "libx264", "-preset", self.settings.export_preset, "-crf", str(self.settings.export_crf), "-pix_fmt", "yuv420p", "-threads", "4"]
+        return [
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", str(self.settings.export_crf),
+            "-pix_fmt", "yuv420p",
+            "-threads", "2",
+            "-x264-params", "threads=2:lookahead_threads=1",
+        ]
 
 
 VideoProcessor = VideoEngine

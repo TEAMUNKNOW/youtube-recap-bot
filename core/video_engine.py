@@ -146,7 +146,7 @@ class VideoEngine:
         max_h = min(max(240, requested_h), 720)
         vf_parts = [
             f"scale=w='min(iw,{max_w})':h='min(ih,{max_h})':force_original_aspect_ratio=decrease",
-            f"fps=min({self.settings.export_fps},30)",
+            f"fps='min({self.settings.export_fps},30)'",
         ]
         if subtitles and Path(subtitles).exists():
             ass_esc = str(subtitles).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")

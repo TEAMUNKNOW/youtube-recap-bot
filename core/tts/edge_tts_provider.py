@@ -71,33 +71,60 @@ class EdgeTTSProvider(BaseTTSProvider):
             raise TTSError("edge-tts package not installed", retryable=False) from exc
 
         async def synth_one(chunk: str, path: Path) -> None:
+            # Edge's free endpoint can intermittently return NoAudioReceived even
+            # for valid voices. Keep requests serialized and retry with backoff;
+            # parallel websocket requests make this failure mode more likely.
             last_exc: Optional[Exception] = None
-            for voice_id in voices_to_try:
-                for attempt in range(1, 3):
-                    try:
-                        path.unlink(missing_ok=True)
-                        communicate = edge_tts.Communicate(
-                            chunk, voice_id, rate="+0%", volume="+0%",
-                            proxy=self.proxy, connect_timeout=15, receive_timeout=90,
-                        )
-                        await communicate.save(str(path))
-                        if path.exists() and path.stat().st_size >= 100:
-                            logger.info("Edge TTS chunk ok voice=%s", voice_id)
-                            return
-                        last_exc = TTSError("Edge TTS produced empty file", retryable=True)
-                    except Exception as exc:
-                        last_exc = exc
-                        logger.warning(
-                            "Edge TTS voice=%s attempt=%s/2 failed: %s",
-                            voice_id, attempt, exc,
-                        )
-                        if attempt < 2:
-                            await asyncio.sleep(0.8 + random.random() * 0.7)
+            for voice_index, voice_id in enumerate(voices_to_try):
+                # The configured proxy is tried first. If it fails, also try a
+                # direct connection before moving to another voice.
+                proxy_candidates = [self.proxy]
+                if self.proxy is not None:
+                    proxy_candidates.append(None)
+
+                for proxy_index, proxy in enumerate(proxy_candidates):
+                    attempts = 3 if voice_index == 0 and proxy_index == 0 else 2
+                    for attempt in range(1, attempts + 1):
+                        try:
+                            path.unlink(missing_ok=True)
+                            communicate = edge_tts.Communicate(
+                                chunk,
+                                voice_id,
+                                rate="+0%",
+                                volume="+0%",
+                                proxy=proxy,
+                                connect_timeout=20,
+                                receive_timeout=90,
+                            )
+                            await communicate.save(str(path))
+                            if path.exists() and path.stat().st_size >= 100:
+                                logger.info(
+                                    "Edge TTS chunk ok voice=%s proxy=%s",
+                                    voice_id,
+                                    "configured" if proxy else "direct",
+                                )
+                                return
+                            last_exc = TTSError(
+                                "Edge TTS produced empty file", retryable=True
+                            )
+                        except Exception as exc:
+                            last_exc = exc
+                            logger.warning(
+                                "Edge TTS voice=%s proxy=%s attempt=%s/%s failed: %s",
+                                voice_id,
+                                "configured" if proxy else "direct",
+                                attempt,
+                                attempts,
+                                exc,
+                            )
+                        if attempt < attempts:
+                            await asyncio.sleep(min(8.0, 1.5 * (2 ** (attempt - 1))) + random.random())
+
             raise TTSError(f"Edge TTS chunk failed: {last_exc}", retryable=True)
 
         try:
             duration = await synthesize_chunked(
-                cleaned, output_path, max_chars=2500, concurrency=2,
+                cleaned, output_path, max_chars=2500, concurrency=1,
                 synthesize_one=synth_one,
             )
         except Exception as exc:

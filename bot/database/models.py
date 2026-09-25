@@ -150,6 +150,7 @@ class ShortsProject(Base):
     selection_mode: Mapped[ShortsSelectionMode]=mapped_column(Enum(ShortsSelectionMode),default=ShortsSelectionMode.CONTINUOUS)
     daily_limit: Mapped[int]=mapped_column(Integer,default=3); timezone: Mapped[str]=mapped_column(String(64),default="Asia/Kolkata")
     schedule_mode: Mapped[str]=mapped_column(String(32),default="fallback"); retention_days: Mapped[int]=mapped_column(Integer,default=1)
+    rights_acknowledged: Mapped[bool]=mapped_column(Boolean,default=False)
     keep_original: Mapped[bool]=mapped_column(Boolean,default=True); keep_rendered: Mapped[bool]=mapped_column(Boolean,default=False)
     chat_id: Mapped[Optional[int]]=mapped_column(Integer); status_message_id: Mapped[Optional[int]]=mapped_column(Integer)
     workspace_path: Mapped[Optional[str]]=mapped_column(Text); error: Mapped[Optional[str]]=mapped_column(Text)

@@ -125,6 +125,8 @@ class Pipeline:
                     update(Task)
                     .where(Task.id == task_id)
                     .values(
+                        source_file=str(ctx.source_path),
+                        workspace_path=str(ws),
                         duration=ctx.media_info.duration,
                         input_size=ctx.media_info.size_bytes,
                     )

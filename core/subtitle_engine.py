@@ -64,7 +64,9 @@ class SubtitleEngine:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         header = self._header()
         events: list[str] = []
-        if use_words and transcript.words:
+        if script_text and not use_words:
+            events = self._from_plain_text(script_text, transcript.duration or 60.0)
+        elif use_words and transcript.words:
             events = self._from_words(transcript.words)
         elif transcript.segments:
             events = self._from_segments(transcript.segments)

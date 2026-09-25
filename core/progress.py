@@ -57,25 +57,37 @@ def format_progress(
     extra: Optional[str] = None,
     task_id: Optional[int] = None,
 ) -> str:
-    lines = ["<b>Processing…</b>"]
+    current = stage.upper()
+    pct = max(0.0, min(100.0, float(percent)))
+    emoji = STAGE_EMOJI.get(current, "⚙️")
+    index = STAGE_ORDER.index(current) if current in STAGE_ORDER else -1
+    completed = max(0, index)
+    total = len(STAGE_ORDER)
+
+    lines = ["<b>🎬 YouTube Recap</b>"]
     if task_id is not None:
         lines.append(f"<code>Task #{task_id}</code>")
+    lines.append("")
+    lines.append(f"<code>{_bar(pct, 20)}</code>  <b>{pct:.0f}%</b>")
+    lines.append(f"{emoji} <b>{current.replace('_', ' ').title()}</b>  •  {completed}/{total} stages")
+    lines.append("")
 
-    current = stage.upper()
-    for s in STAGE_ORDER:
-        emoji = STAGE_EMOJI.get(s, "•")
-        if s == current:
-            bar = _bar(percent)
-            lines.append(f"{emoji} <b>{s.title()}</b>  {bar}  {percent:.0f}%")
-        elif current in STAGE_ORDER and STAGE_ORDER.index(s) < STAGE_ORDER.index(current):
-            lines.append(f"{emoji} {s.title()}  ✓")
-        else:
-            lines.append(f"{emoji} {s.title()}  —")
+    # Compact pipeline map: completed → active → remaining.
+    if index >= 0:
+        before = "  ".join(f"✓ {STAGE_ORDER[i].replace('_', ' ').title()}" for i in range(max(0, index - 2), index))
+        after = "  ".join(f"○ {STAGE_ORDER[i].replace('_', ' ').title()}" for i in range(index + 1, min(total, index + 3)))
+        if before:
+            lines.append(f"<blockquote>{before}</blockquote>")
+        lines.append(f"<blockquote>▶ <b>{current.replace('_', ' ').title()}</b></blockquote>")
+        if after:
+            lines.append(f"<blockquote>{after}</blockquote>")
+    else:
+        lines.append(f"<blockquote>▶ <b>{current.replace('_', ' ').title()}</b></blockquote>")
 
     if extra:
-        lines.append(f"\n{extra}")
+        lines.append("")
+        lines.append(f"💬 {extra}")
     return "\n".join(lines)
-
 
 def _bar(percent: float, width: int = 10) -> str:
     filled = int(max(0, min(100, percent)) / 100 * width)

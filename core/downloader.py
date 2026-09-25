@@ -111,7 +111,18 @@ class Downloader:
             cmd.extend(["--proxy", self.settings.proxy_url])
         if self.settings.cookie_file and self.settings.cookie_file.exists():
             cmd.extend(["--cookies", str(self.settings.cookie_file)])
-        if self.settings.po_token:
+        # YouTube increasingly requires a JS runtime and may return 403 for a single client.
+        # Let yt-dlp negotiate across clients instead of pinning one fragile client.
+        host = (urlparse(url).hostname or "").lower()
+        if host in YOUTUBE_HOSTS or host.endswith(".youtube.com"):
+            cmd.extend(["--js-runtimes", "node"])
+            cmd.extend(["--extractor-args", "youtube:player_client=default,web_safari"])
+            if self.settings.po_token:
+                po_token = self.settings.po_token
+                if "+" not in po_token:
+                    po_token = f"web.gvs+{po_token}"
+                cmd.extend(["--extractor-args", f"youtube:po_token={po_token}"])
+        elif self.settings.po_token:
             cmd.extend(["--extractor-args", f"youtube:po_token={self.settings.po_token}"])
 
         cmd.extend(

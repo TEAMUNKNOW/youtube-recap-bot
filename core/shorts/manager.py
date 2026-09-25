@@ -24,6 +24,17 @@ class ShortsManager:
             p=ShortsProject(user_id=user_id,source_file=source_file,source_url=source_url,chat_id=chat_id,selection_mode=ShortsSelectionMode(selection_mode),clip_duration=duration or self.settings.shorts_default_duration,playback_speed=speed or self.settings.shorts_default_speed,workspace_path=str(self.settings.workspace_root/"shorts"),daily_limit=self.settings.shorts_default_daily_limit,timezone=self.settings.shorts_default_timezone,retention_days=self.settings.shorts_retention_days)
             s.add(p); await s.flush(); pid=p.id; p.workspace_path=str(self.settings.workspace_root/"shorts"/str(pid))
         return pid
+    async def start(self,pid:int)->None:
+        t=asyncio.create_task(self.run(pid),name=f"shorts-project-{pid}")
+        self.tasks.add(t); t.add_done_callback(self.tasks.discard)
+    async def pause(self,pid:int)->None:
+        async with get_session() as s:
+            p=await s.get(ShortsProject,pid)
+            if p and p.status not in (ShortsProjectStatus.COMPLETED,ShortsProjectStatus.STOPPED): p.status=ShortsProjectStatus.PAUSED
+    async def stop(self,pid:int)->None:
+        async with get_session() as s:
+            p=await s.get(ShortsProject,pid)
+            if p: p.status=ShortsProjectStatus.STOPPED
     async def run(self,pid:int)->None:
         async with get_session() as s:
             p=await s.get(ShortsProject,pid)

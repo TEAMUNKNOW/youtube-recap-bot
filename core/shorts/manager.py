@@ -16,9 +16,11 @@ from core.shorts.renderer import ShortsRenderer
 from core.shorts.metadata import ShortsMetadata
 from core.shorts.scheduler import ShortsScheduler
 from core.shorts.uploader import ShortsUploader
+from core.shorts.analytics import AnalyticsAdvisor
+from bot.database.models import ShortsSchedule
 logger=logging.getLogger(__name__)
 class ShortsManager:
-    def __init__(self,settings:Settings): self.settings=settings; self.render=ShortsRenderer(settings); self.transcriber=Transcriber(settings); self.llm=LLMAgent(settings); self.uploader=ShortsUploader(settings); self.tasks:set[asyncio.Task]=set(); self.sem=asyncio.Semaphore(settings.shorts_render_concurrency)
+    def __init__(self,settings:Settings): self.settings=settings; self.render=ShortsRenderer(settings); self.transcriber=Transcriber(settings); self.llm=LLMAgent(settings); self.uploader=ShortsUploader(settings); self.analytics=AnalyticsAdvisor(settings); self.tasks:set[asyncio.Task]=set(); self.sem=asyncio.Semaphore(settings.shorts_render_concurrency)
     async def create_project(self,user_id:int,source_file:str|None,source_url:str|None,chat_id:int,selection_mode:str="CONTINUOUS",duration:int|None=None,speed:float|None=None)->int:
         async with get_session() as s:
             p=ShortsProject(user_id=user_id,source_file=source_file,source_url=source_url,chat_id=chat_id,selection_mode=ShortsSelectionMode(selection_mode),clip_duration=duration or self.settings.shorts_default_duration,playback_speed=speed or self.settings.shorts_default_speed,workspace_path=str(self.settings.workspace_root/"shorts"),daily_limit=self.settings.shorts_default_daily_limit,timezone=self.settings.shorts_default_timezone,retention_days=self.settings.shorts_retention_days)
@@ -146,8 +148,14 @@ class ShortsManager:
             if account and c.local_path:
                 q2=await s.execute(select(ShortClip.scheduled_at).where(ShortClip.project_id==pid,ShortClip.scheduled_at.is_not(None)).order_by(ShortClip.scheduled_at.desc()).limit(1))
                 last=q2.scalar_one_or_none()
-                sched=ShortsScheduler(p.timezone).slots(last,1,p.daily_limit)[0]
+                weekdays,reason=await self.analytics.preferred_weekdays(account) if p.schedule_mode=="auto_best" else (list(range(7)),"Configured fallback schedule.")
+                sched=ShortsScheduler(p.timezone).slots(last,1,p.daily_limit,preferred_weekdays=weekdays)[0]
                 c.scheduled_at=sched; c.status=ShortsClipStatus.UPLOADING
+                existing_schedule=(await s.execute(select(ShortsSchedule).where(ShortsSchedule.project_id==pid))).scalar_one_or_none()
+                if existing_schedule is None:
+                    s.add(ShortsSchedule(project_id=pid,daily_limit=p.daily_limit,auto_best_time=(p.schedule_mode=="auto_best"),timezone=p.timezone,reason=reason))
+                else:
+                    existing_schedule.reason=reason
             else:
                 p.status=ShortsProjectStatus.PAUSED
                 p.error="Connect YouTube to continue upload/scheduling"

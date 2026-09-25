@@ -28,9 +28,7 @@ def register_command_handlers(app: Client) -> None:
             [InlineKeyboardButton("🎬 Create Recap", callback_data="menu:create")],
             [InlineKeyboardButton("🎬 Shorts Factory", callback_data="sf:menu")],
             [InlineKeyboardButton("🔗 YouTube URL", callback_data="menu:url"), InlineKeyboardButton("📤 Upload Video", callback_data="menu:upload")],
-            [InlineKeyboardButton("🎙️ Voice", callback_data="menu:voice"), InlineKeyboardButton("🌐 Language", callback_data="menu:lang")],
-            [InlineKeyboardButton("🖼️ Thumbnail", callback_data="menu:thumb"), InlineKeyboardButton("📊 My Tasks", callback_data="menu:tasks")],
-            [InlineKeyboardButton("❓ Help", callback_data=f"{CB_MENU_HELP}")],
+            [InlineKeyboardButton("📊 My Tasks", callback_data="menu:tasks"), InlineKeyboardButton("❓ Help", callback_data=CB_MENU_HELP)],
         ])
         await message.reply_text(
             "👋 <b>YouTube Recap & Video Automation</b>\n\n"

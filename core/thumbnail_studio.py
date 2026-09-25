@@ -18,7 +18,7 @@ class ThumbnailStudio:
         self.settings = settings
 
     async def generate(
-        self, video: Path, output: Path, *, title: str, duration: float, count: int = 8,
+        self, video: Path, output: Path, *, title: str, duration: float, chapters=None, count: int = 8,
     ) -> Path:
         output.parent.mkdir(parents=True, exist_ok=True)
         frames_dir = output.parent / "frames"
@@ -27,7 +27,13 @@ class ThumbnailStudio:
         end = max(start + 1, duration * 0.95)
         if duration < 5:
             start, end = 0.5, max(1.0, duration - 0.5)
-        timestamps = [start + (end - start) * i / max(1, count - 1) for i in range(count)]
+        chapter_times = [
+            float(getattr(ch, "start_seconds", 0.0))
+            for ch in (chapters or [])
+            if 0.0 <= float(getattr(ch, "start_seconds", 0.0)) <= max(duration - 0.5, 0.5)
+        ]
+        base_times = [start + (end - start) * i / max(1, count - 1) for i in range(count)]
+        timestamps = list(dict.fromkeys(chapter_times[:max(2, count // 2)] + base_times))[:count]
         frame_paths: list[Path] = []
         for i, ts in enumerate(timestamps):
             fp = frames_dir / f"frame_{i:02d}.jpg"

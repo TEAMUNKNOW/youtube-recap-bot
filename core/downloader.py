@@ -78,6 +78,7 @@ class Downloader:
         *,
         progress_cb: Optional[Callable[[DownloadProgress], Any]] = None,
         filename_template: str = "input.%(ext)s",
+        max_filesize_bytes: Optional[int] = None,
     ) -> Path:
         url = validate_url(url)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -101,7 +102,7 @@ class Downloader:
             "--retries",
             str(self.settings.ytdlp_retries),
             "--max-filesize",
-            str(self.settings.max_input_bytes()),
+            str(max_filesize_bytes if max_filesize_bytes is not None else self.settings.max_input_bytes()),
             "--max-downloads",
             "1",
         ]

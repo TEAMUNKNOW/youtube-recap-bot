@@ -136,7 +136,14 @@ class VideoEngine:
         await self.runner.detect_hw()
         encoder = self._video_encoder_args()
         w, h = self.settings.export_resolution.split("x")
-        vf_parts = [f"scale={w}:{h}:force_original_aspect_ratio=decrease", f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2", f"fps={self.settings.export_fps}"]
+        # Never upscale a source just to hit the configured canvas size. Upscaling
+        # a 720p source to 1080p is expensive on CPU-only hosts and can trigger
+        # OOM kills during libx264 encoding. Keep the requested maximum as a cap.
+        vf_parts = [
+            f"scale=w=min(iw\\,{w}):h=min(ih\\,{h}):force_original_aspect_ratio=decrease",
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
+            f"fps={self.settings.export_fps}",
+        ]
         if subtitles and Path(subtitles).exists():
             ass_esc = str(subtitles).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
             vf_parts.append(f"ass='{ass_esc}'")
@@ -216,7 +223,7 @@ class VideoEngine:
             return ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", str(self.settings.export_crf), "-b:v", "0"]
         if hw == "h264_qsv":
             return ["-c:v", "h264_qsv", "-global_quality", str(self.settings.export_crf)]
-        return ["-c:v", "libx264", "-preset", self.settings.export_preset, "-crf", str(self.settings.export_crf), "-pix_fmt", "yuv420p"]
+        return ["-c:v", "libx264", "-preset", self.settings.export_preset, "-crf", str(self.settings.export_crf), "-pix_fmt", "yuv420p", "-threads", "4"]
 
 
 VideoProcessor = VideoEngine

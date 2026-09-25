@@ -101,6 +101,49 @@ class VideoEngine:
         await self.runner.run(["-i", str(video), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "libmp3lame", "-b:a", "64k", str(out_wav)], label="extract_audio")
         return out_wav
 
+    async def fit_audio_duration(self, audio: Path, output: Path, target_duration: float) -> Path:
+        """Time-stretch narration mildly so long-form output covers the full source."""
+        if target_duration <= 0 or not audio.exists():
+            return audio
+        current = await self._probe_audio_duration(audio)
+        if current <= 0:
+            return audio
+        ratio = current / target_duration
+        if 0.88 <= ratio <= 1.12:
+            return audio
+        if not 0.75 <= ratio <= 1.25:
+            logger.warning("Narration duration %.1fs is too far from target %.1fs; leaving natural timing", current, target_duration)
+            return audio
+        filters: list[str] = []
+        remaining = ratio
+        while remaining < 0.5:
+            filters.append("atempo=0.5")
+            remaining /= 0.5
+        while remaining > 2.0:
+            filters.append("atempo=2.0")
+            remaining /= 2.0
+        filters.append(f"atempo={remaining:.6f}")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        await self.runner.run([
+            "-i", str(audio), "-filter:a", ",".join(filters),
+            "-c:a", "aac", "-b:a", self.settings.export_audio_bitrate,
+            str(output),
+        ], label="fit_narration_duration")
+        return output
+
+    @staticmethod
+    async def _probe_audio_duration(path: Path) -> float:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", str(path),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        try:
+            return float(stdout.decode().strip())
+        except ValueError:
+            return 0.0
+
     async def mute_video(self, video: Path, out_video: Path) -> Path:
         out_video.parent.mkdir(parents=True, exist_ok=True)
         await self.runner.run([

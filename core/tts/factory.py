@@ -61,9 +61,15 @@ class TTSFactory:
         if selected not in ("edge", "edge_tts") or active_provider.name != "edge":
             active_provider = create_tts_provider(self.settings, selected)
 
+        selected_voice = voice
+        if selected in ("elevenlabs", "eleven"):
+            selected_voice = self.settings.elevenlabs_voice_id
+        elif selected in ("openai", "openai_tts"):
+            selected_voice = self.settings.openai_tts_voice
+
         return await active_provider.synthesize(
             text,
             output_path,
-            voice=voice,
+            voice=selected_voice,
             language=language,
         )

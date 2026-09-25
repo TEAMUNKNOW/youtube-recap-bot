@@ -112,6 +112,88 @@ class LLMAgent:
             script.word_count = len(script.script.split())
         return script
 
+    async def generate_long_form_recap(
+        self,
+        transcript: Any,
+        *,
+        duration_seconds: float,
+        language: str = "en",
+        mode: str = "AI_RECAP",
+    ) -> RecapScript:
+        """Generate a duration-scaled recap in timestamped chunks for long videos."""
+        segments = list(getattr(transcript, "segments", None) or [])
+        if not segments or duration_seconds <= 15 * 60:
+            return await self.generate_recap_script(
+                getattr(transcript, "text", str(transcript)),
+                duration_seconds=duration_seconds,
+                language=language,
+                mode=mode,
+            )
+
+        target_wpm = 125
+        chunk_seconds = 480.0
+        chunks: list[tuple[float, float, str]] = []
+        start = float(getattr(segments[0], "start", 0.0)) if segments else 0.0
+        buf: list[str] = []
+        chunk_start = start
+        for seg in segments:
+            seg_start = float(getattr(seg, "start", chunk_start))
+            if buf and seg_start - chunk_start >= chunk_seconds:
+                chunks.append((chunk_start, seg_start, " ".join(buf).strip()))
+                buf = []
+                chunk_start = seg_start
+            buf.append(str(getattr(seg, "text", "")).strip())
+        if buf:
+            chunks.append((chunk_start, float(getattr(segments[-1], "end", duration_seconds)), " ".join(buf).strip()))
+
+        if not chunks:
+            return await self.generate_recap_script(
+                getattr(transcript, "text", str(transcript)),
+                duration_seconds=duration_seconds,
+                language=language,
+                mode=mode,
+            )
+
+        lang_name = {"hi": "Hindi", "en": "English", "bn": "Bengali", "es": "Spanish"}.get(language[:2].lower(), language)
+        titles: list[str] = []
+        scripts: list[str] = []
+        chapters: list[Chapter] = []
+        key_points: list[str] = []
+        for index, (start_s, end_s, chunk_text) in enumerate(chunks, 1):
+            span = max(30.0, end_s - start_s)
+            target_words = max(80, int(span / 60.0 * target_wpm))
+            system = (
+                "You are a cinematic documentary/story recap narrator. Rewrite the supplied "
+                "part as engaging narration that explains what happens, why it matters, "
+                "and the important visual/story context. Do not fabricate facts or dialogue. "
+                "Keep continuity with the supplied part. Output valid JSON only."
+            )
+            user = (
+                f"Language: {lang_name}. Part {index}/{len(chunks)}. Source time: {start_s:.1f}-{end_s:.1f}s.\\n"
+                f"Target narration: about {target_words} words.\\n"
+                f"Transcript for this part:\\n{self._prepare_transcript(chunk_text, 14000)}\\n\\n"
+                "Return JSON with keys: title, script, word_count, tone, chapters, key_points. "
+                "The script must be natural spoken narration, not an article."
+            )
+            raw = await self._complete(system, user)
+            data = self._extract_json(raw)
+            part = RecapScript.model_validate(data)
+            if not part.script.strip():
+                raise LLMError(f"Empty narration generated for part {index}", retryable=True)
+            titles.append(part.title.strip())
+            scripts.append(part.script.strip())
+            chapters.append(Chapter(title=part.title.strip() or f"Part {index}", start_seconds=start_s))
+            key_points.extend(part.key_points[:8])
+
+        return RecapScript(
+            title=titles[0] if titles else "Video Recap",
+            script="\\n\\n".join(scripts),
+            word_count=sum(len(s.split()) for s in scripts),
+            tone="cinematic storyteller",
+            chapters=chapters,
+            key_points=key_points[:40],
+        )
+
     async def generate_seo(
         self,
         script: str,

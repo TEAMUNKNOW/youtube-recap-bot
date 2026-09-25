@@ -101,7 +101,15 @@ class ShortsManager:
         async with get_session() as s:
             c=await s.get(ShortClip,cid); p=await s.get(ShortsProject,pid)
             if c.title is None:
-                meta=await ShortsMetadata(self.llm).generate("Clip source timestamps %s-%s"%(c.source_start,c.source_end),"Source video",c.part_number,c.chapter)
+                lines=[]
+                tp=ws/"transcript.jsonl"
+                if tp.exists():
+                    with tp.open(encoding="utf-8") as tf:
+                        for line in tf:
+                            row=json.loads(line)
+                            if float(row["end"])>=c.source_start and float(row["start"])<=c.source_end:
+                                lines.append(row["text"])
+                meta=await ShortsMetadata(self.llm).generate(" ".join(lines),"Source video",c.part_number,c.chapter)
                 c.title=meta["title"]; c.description=meta["description"]; c.tags=meta["tags"]; c.hashtags=meta["hashtags"]
         async with get_session() as s:
             c=await s.get(ShortClip,cid); q=await s.execute(select(YouTubeAccount).where(YouTubeAccount.user_id==(await s.get(ShortsProject,pid)).user_id,YouTubeAccount.revoked_at.is_(None))); account=q.scalars().first()

@@ -57,7 +57,7 @@ class ShortsManager:
                 return
             p.status=ShortsProjectStatus.ANALYZING; ws=Path(p.workspace_path); ws.mkdir(parents=True,exist_ok=True); source=Path(p.source_file) if p.source_file else None; url=p.source_url
         if source is None:
-            source=await Downloader(self.settings).download(url,ws)
+            source=await Downloader(self.settings).download(url,ws,max_filesize_bytes=int(self.settings.shorts_max_input_size_gb*1024**3)
         info=await probe(source)
         async with get_session() as s:
             p=await s.get(ShortsProject,pid); p.source_file=str(source); p.source_duration=info.duration; p.status=ShortsProjectStatus.ANALYZING

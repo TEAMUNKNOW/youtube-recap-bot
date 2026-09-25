@@ -44,7 +44,7 @@ async def dispatch(client,query):
     if len(data.split(":"))>=3 and data.split(":")[1]=="project":
         pid=int(data.split(":")[2]); p=await _project(pid,uid)
         if not p: await query.answer("Project not found",show_alert=True); return
-        await query.message.edit_text(f"⚙️ <b>Project #{pid} Settings</b>\n\nDuration: {p.clip_duration}s\nSpeed: {p.playback_speed}x",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("30s",callback_data=f"sf:duration:{pid}:30"),InlineKeyboardButton("60s",callback_data=f"sf:duration:{pid}:60"),InlineKeyboardButton("90s",callback_data=f"sf:duration:{pid}:90")],[InlineKeyboardButton("120s",callback_data=f"sf:duration:{pid}:120"),InlineKeyboardButton("180s",callback_data=f"sf:duration:{pid}:180")],[InlineKeyboardButton("0.75x",callback_data=f"sf:speed:{pid}:0.75"),InlineKeyboardButton("1x",callback_data=f"sf:speed:{pid}:1.0"),InlineKeyboardButton("1.25x",callback_data=f"sf:speed:{pid}:1.25")],[InlineKeyboardButton("1.5x",callback_data=f"sf:speed:{pid}:1.5"),InlineKeyboardButton("1.75x",callback_data=f"sf:speed:{pid}:1.75"),InlineKeyboardButton("2x",callback_data=f"sf:speed:{pid}:2.0")],[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]])); await query.answer(); return
+        await query.message.edit_text(f"⚙️ <b>Project #{pid} Settings</b>\n\nDuration: {p.clip_duration}s\nSpeed: {p.playback_speed}x",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("30s",callback_data=f"sf:duration:{pid}:30"),InlineKeyboardButton("60s",callback_data=f"sf:duration:{pid}:60"),InlineKeyboardButton("90s",callback_data=f"sf:duration:{pid}:90")],[InlineKeyboardButton("120s",callback_data=f"sf:duration:{pid}:120"),InlineKeyboardButton("180s",callback_data=f"sf:duration:{pid}:180"),InlineKeyboardButton("Custom",callback_data=f"sf:custom_duration:{pid}") ],[InlineKeyboardButton("0.75x",callback_data=f"sf:speed:{pid}:0.75"),InlineKeyboardButton("1x",callback_data=f"sf:speed:{pid}:1.0"),InlineKeyboardButton("1.25x",callback_data=f"sf:speed:{pid}:1.25")],[InlineKeyboardButton("1.5x",callback_data=f"sf:speed:{pid}:1.5"),InlineKeyboardButton("1.75x",callback_data=f"sf:speed:{pid}:1.75"),InlineKeyboardButton("2x",callback_data=f"sf:speed:{pid}:2.0")],[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]])); await query.answer(); return
     if len(data.split(":"))>=4 and data.split(":")[1] in ("duration","speed"):
         kind=data.split(":")[1]; pid=int(data.split(":")[2]); value=float(data.split(":")[3]); p=await _project(pid,uid)
         if not p: await query.answer("Project not found",show_alert=True); return
@@ -53,6 +53,11 @@ async def dispatch(client,query):
             if kind=="duration": p.clip_duration=int(value)
             else: p.playback_speed=value
         await query.message.edit_text(f"⚙️ Project #{pid}: {('duration '+str(int(value))+'s') if kind=='duration' else ('speed '+str(value)+'x')} updated.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⚙️ Settings",callback_data=f"sf:project:{pid}")],[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]])); await query.answer(); return
+    if len(data.split(":"))>=3 and data.split(":")[1]=="custom_duration":
+        pid=int(data.split(":")[2]); p=await _project(pid,uid)
+        if not p: await query.answer("Project not found",show_alert=True); return
+        client.shorts_sessions[uid]={"custom_duration_pid":pid}
+        await query.message.edit_text("⏱️ Send a custom target duration in seconds (30–1800)."); await query.answer(); return
     if data=="sf:help":
         await query.message.edit_text("📚 <b>Shorts Factory Help</b>\n\nContinuous Series covers the full source timeline without intentional gaps. Highlight Clips selects meaningful moments and may skip sections. Processing is checkpointed and can resume after restarts.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]])); await query.answer(); return
     if data=="sf:settings":

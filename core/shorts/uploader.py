@@ -3,13 +3,20 @@ import asyncio,logging
 from datetime import datetime,timezone
 from pathlib import Path
 from bot.config import Settings
-from bot.database.models import YouTubeAccount,ShortClip,ShortsClipStatus
+from bot.database.models import YouTubeAccount,ShortClip,ShortsClipStatus,Quota
 from core.shorts.oauth import YouTubeOAuth
+from bot.database.session import get_session
+from sqlalchemy import select
 logger=logging.getLogger(__name__)
 class ShortsUploader:
     def __init__(self,settings:Settings): self.settings=settings; self.oauth=YouTubeOAuth(settings)
     async def upload(self,account:YouTubeAccount,clip:ShortClip)->str:
         if clip.youtube_video_id: return clip.youtube_video_id
+        today=datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        async with get_session() as s:
+            q=await s.execute(select(Quota).where(Quota.date==today)); row=q.scalar_one_or_none()
+            if row is None: row=Quota(date=today); s.add(row); await s.flush()
+            if row.upload_count>=100: raise RuntimeError("YouTube upload quota exhausted for the current daily upload bucket")
         from googleapiclient.discovery import build
         from googleapiclient.http import MediaFileUpload
         creds=self.oauth.credentials(account)
@@ -27,4 +34,7 @@ class ShortsUploader:
             while resp is None:
                 _,resp=req.next_chunk()
             return resp["id"]
-        return await asyncio.to_thread(work)
+        video_id=await asyncio.to_thread(work)
+        async with get_session() as s:
+            q=await s.execute(select(Quota).where(Quota.date==today)); row=q.scalar_one(); row.upload_count+=1; row.youtube_units+=1; row.request_count+=1
+        return video_id

@@ -15,7 +15,7 @@ class ShortsRenderer:
         else: vf="scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920"
         vf+=f",setpts=PTS/{speed}"
         af=f"atempo={speed}"
-        args=["-ss",f"{start:.3f}","-to",f"{end:.3f}","-i",str(source),"-vf",vf,"-af",af,"-r",("30" if fps=="30" else "60" if fps=="60" else "30"),"-c:v","libx264","-preset","veryfast","-crf","20","-pix_fmt","yuv420p","-c:a","aac","-b:a","128k","-movflags","+faststart",str(out)]
+        args=["-ss",f"{start:.3f}","-i",str(source),"-t",f"{max(0.1,end-start):.3f}","-vf",vf,"-af",af,"-r",("30" if fps=="30" else "60" if fps=="60" else "30"),"-c:v","libx264","-preset","veryfast","-crf","20","-pix_fmt","yuv420p","-c:a","aac","-b:a","128k","-movflags","+faststart",str(out)]
         try: await self.ff.run(args,label="short_render")
         except Exception:
             if crop_mode=="smart":

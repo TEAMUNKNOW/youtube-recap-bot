@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     tts_provider: str = Field(default="edge")
     # Ordered comma-separated failover providers used when the primary TTS fails.
-    tts_fallback_providers: str = Field(default="openai,elevenlabs")
+    tts_fallback_providers: str = Field(default="local,openai,elevenlabs")
     hindi_voice: str = Field(default="hi-IN-MadhurNeural")
     english_voice: str = Field(default="en-US-ChristopherNeural")
     bengali_voice: str = Field(default="bn-IN-TanishaaNeural")

@@ -22,7 +22,7 @@ from core.progress import format_completed, format_failed, format_progress
 from core.queue_manager import QueueManager
 from sqlalchemy import select
 from bot.database.models import Task
-from bot.states import CB_RESULT_DETAILS, CB_RESULT_SYNC, CB_RESULT_RAW
+from bot.states import CB_RESULT_DETAILS, CB_RESULT_SYNC, CB_RESULT_RAW, CB_RESULT_RETRY
 from core.shorts.manager import ShortsManager
 from core.shorts.oauth_server import create_oauth_app
 

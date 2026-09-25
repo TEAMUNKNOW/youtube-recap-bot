@@ -132,7 +132,7 @@ class Pipeline:
                 await session.commit()
 
             await self._stage(task_id, "EXTRACTING_AUDIO", 15)
-            ctx.audio_path = ws / "audio.wav"
+            ctx.audio_path = ws / "audio.mp3"
             await self.video.extract_audio(ctx.source_path, ctx.audio_path)
 
             await self._stage(task_id, "TRANSCRIBING", 30)

@@ -21,11 +21,26 @@ async def dispatch(client,query):
         client.shorts_sessions[uid]={"active":True}
         await query.message.edit_text("➕ <b>Create Shorts</b>\n\nSend a YouTube URL or upload a video.\n\nDefault: Continuous Series · 60 sec · 1.5x\n\nYou must have the rights/permission to repurpose the content."); await query.answer(); return
     if data=="sf:youtube":
+        user=await ensure_user(uid)
+        async with get_session() as s:
+            q=await s.execute(select(YouTubeAccount).where(YouTubeAccount.user_id==user.id,YouTubeAccount.revoked_at.is_(None)))
+            accounts=q.scalars().all()
+        rows=[]
+        for a in accounts:
+            rows.append([InlineKeyboardButton(f"❌ Disconnect {a.channel_title}",callback_data=f"sf:disconnect:{a.id}")])
         try:
-            url=await YouTubeOAuth(get_settings()).authorization_url((await ensure_user(uid)).id)
-            await query.message.edit_text("📺 <b>Connect YouTube</b>\n\nAuthorize your Google account using the button below.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔐 Authorize Google / YouTube",url=url)],[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]]))
-        except Exception as exc: await query.message.edit_text(f"❌ YouTube OAuth is not configured.\n\n{str(exc)[:500]}",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]]))
+            url=await YouTubeOAuth(get_settings()).authorization_url(user.id)
+            rows.insert(0,[InlineKeyboardButton("🔐 Authorize Google / YouTube",url=url)])
+            body="📺 <b>Connect YouTube</b>\n\n"+("\n".join(f"✅ {a.channel_title}" for a in accounts) if accounts else "No channel connected.")
+            await query.message.edit_text(body,reply_markup=InlineKeyboardMarkup(rows+[[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]]))
+        except Exception as exc:
+            await query.message.edit_text(f"❌ YouTube OAuth is not configured.\n\n{str(exc)[:500]}",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]]))
         await query.answer(); return
+    if len(data.split(":"))>=3 and data.split(":")[1]=="disconnect":
+        aid=int(data.split(":")[2])
+        user=await ensure_user(uid)
+        await YouTubeOAuth(get_settings()).disconnect(aid,user.id)
+        await query.message.edit_text("📺 YouTube connection revoked.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]])); await query.answer(); return
     if data=="sf:help":
         await query.message.edit_text("📚 <b>Shorts Factory Help</b>\n\nContinuous Series covers the full source timeline without intentional gaps. Highlight Clips selects meaningful moments and may skip sections. Processing is checkpointed and can resume after restarts.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]])); await query.answer(); return
     if data=="sf:settings":

@@ -114,14 +114,48 @@ class LLMAgent:
         return seo
 
     async def _complete(self, system: str, user: str) -> str:
-        provider = self.settings.llm_provider.lower()
+        provider = (self.settings.llm_provider or "groq").lower()
+        if provider == "groq" and self.settings.groq_api_key:
+            return await retry_async(self._groq_complete, max_attempts=3, system=system, user=user)
         if provider == "openai" and self.settings.openai_api_key:
+            return await retry_async(self._openai_complete, max_attempts=2, system=system, user=user)
+        if provider == "gemini" and self.settings.gemini_api_key:
+            return await retry_async(self._gemini_complete, max_attempts=2, system=system, user=user)
+        if self.settings.groq_api_key:
+            return await retry_async(self._groq_complete, max_attempts=3, system=system, user=user)
+        if self.settings.openai_api_key:
             return await retry_async(self._openai_complete, max_attempts=2, system=system, user=user)
         if self.settings.gemini_api_key:
             return await retry_async(self._gemini_complete, max_attempts=2, system=system, user=user)
-        if self.settings.openai_api_key:
-            return await retry_async(self._openai_complete, max_attempts=2, system=system, user=user)
-        raise LLMError("No LLM API key configured", retryable=False)
+        raise LLMError("No LLM API key configured (set GROQ_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY)", retryable=False)
+
+    async def _groq_complete(self, system: str, user: str) -> str:
+        import httpx
+        model = getattr(self.settings, "groq_model", None) or "llama-3.3-70b-versatile"
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {"Authorization": f"Bearer {self.settings.groq_api_key}", "Content-Type": "application/json"}
+        body = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0.7,
+            "response_format": {"type": "json_object"},
+        }
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(url, headers=headers, json=body)
+        if resp.status_code == 429:
+            raise LLMError("Groq rate limited", retryable=True)
+        if resp.status_code >= 500:
+            raise LLMError(f"Groq server error {resp.status_code}", retryable=True)
+        if resp.status_code != 200:
+            raise LLMError(f"Groq error {resp.status_code}: {resp.text[:300]}", retryable=False)
+        data = resp.json()
+        try:
+            return data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMError("Malformed Groq response", retryable=True) from exc
 
     async def _gemini_complete(self, system: str, user: str) -> str:
         import httpx
@@ -152,7 +186,10 @@ class LLMAgent:
         headers = {"Authorization": f"Bearer {self.settings.openai_api_key}", "Content-Type": "application/json"}
         body = {
             "model": self.settings.openai_model,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
             "temperature": 0.7,
             "response_format": {"type": "json_object"},
         }

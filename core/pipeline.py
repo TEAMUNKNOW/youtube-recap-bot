@@ -154,6 +154,8 @@ class Pipeline:
                     mode=mode,
                 )
 
+            (ws / "script.txt").write_text(ctx.script.script, encoding="utf-8")
+            (ws / "transcript.txt").write_text(ctx.transcript.text, encoding="utf-8")
             await self._stage(task_id, "TTS", 55)
             ctx.tts_result = await self.tts.synthesize(
                 ctx.script.script,

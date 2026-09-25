@@ -20,11 +20,6 @@ GROQ_FREE_MODELS: Sequence[str] = (
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
     "qwen/qwen3.8-27b",
-    "qwen/qwen3.6-27b",
-    "llama-3.1-8b-instant",
-    "llama-3.3-70b-versatile",
-    "mixtral-8x7b-32768",
-    "gemma2-9b-it",
 )
 
 
@@ -224,8 +219,24 @@ class LLMAgent:
                     continue
                 logger.warning("Groq model %s failed, trying next: %s", model, exc)
                 continue
+        if self.settings.openai_api_key:
+            logger.warning("All Groq models failed; falling back to OpenAI")
+            try:
+                return await retry_async(
+                    self._openai_complete, max_attempts=2, system=system, user=user
+                )
+            except Exception as exc:
+                last_err = exc
+        if self.settings.gemini_api_key:
+            logger.warning("All Groq models failed; falling back to Gemini")
+            try:
+                return await retry_async(
+                    self._gemini_complete, max_attempts=2, system=system, user=user
+                )
+            except Exception as exc:
+                last_err = exc
         raise LLMError(
-            f"All Groq models failed. Last error: {last_err}",
+            f"All configured LLM providers failed. Last error: {last_err}",
             retryable=True,
         ) from last_err
 
@@ -325,7 +336,7 @@ class LLMAgent:
             raise LLMError("Malformed OpenAI response", retryable=True) from exc
 
     @staticmethod
-    def _prepare_transcript(text: str, max_chars: int = 60000) -> str:
+    def _prepare_transcript(text: str, max_chars: int = 24000) -> str:
         """Keep long transcripts representative without exploding LLM context."""
         text = text.strip()
         if len(text) <= max_chars:

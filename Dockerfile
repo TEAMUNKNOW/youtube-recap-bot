@@ -7,11 +7,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     fonts-dejavu-core \
+    fonts-liberation \
+    fonts-noto-core \
+    fonts-noto-ui-core \
+    fonts-noto-unhinted \
+    fontconfig \
     curl \
     ca-certificates \
+    && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
 
-# Non-root user
 RUN useradd --create-home --shell /bin/bash appuser
 
 WORKDIR /app

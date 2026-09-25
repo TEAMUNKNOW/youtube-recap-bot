@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class SubtitleEngine:
     def __init__(
         self, *,
-        font_name: str = "Montserrat",
+        font_name: str = "DejaVu Sans",
         font_size: int = 48,
         primary_colour: str = "&H00FFFFFF",
         secondary_colour: str = "&H0000FFFF",
@@ -40,6 +40,22 @@ class SubtitleEngine:
         self.margin_l = margin_l
         self.margin_r = margin_r
         self.max_chars_per_line = max_chars_per_line
+
+    @staticmethod
+    def font_for_language(language: str | None) -> str:
+        """Pick a system font that covers the script."""
+        lang = (language or "en")[:2].lower()
+        mapping = {
+            "hi": "Noto Sans Devanagari",
+            "bn": "Noto Sans Bengali",
+            "ar": "Noto Sans Arabic",
+            "zh": "Noto Sans CJK SC",
+            "ja": "Noto Sans CJK JP",
+            "ko": "Noto Sans CJK KR",
+            "es": "DejaVu Sans",
+            "en": "DejaVu Sans",
+        }
+        return mapping.get(lang, "DejaVu Sans")
 
     def generate_ass(
         self, transcript: Transcript, output_path: Path, *,
@@ -82,78 +98,60 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
         group: list[Word] = []
         char_count = 0
         for w in words:
-            token = w.word.strip()
-            if not token:
+            t = (w.text or "").strip()
+            if not t:
                 continue
-            if group and char_count + len(token) + 1 > self.max_chars_per_line:
-                events.append(self._dialogue(group))
-                group = []
-                char_count = 0
+            if group and (char_count + len(t) + 1 > self.max_chars_per_line):
+                events.append(self._event(group))
+                group, char_count = [], 0
             group.append(w)
-            char_count += len(token) + 1
+            char_count += len(t) + 1
         if group:
-            events.append(self._dialogue(group))
+            events.append(self._event(group))
         return events
 
-    def _dialogue(self, words: List[Word]) -> str:
-        start = self._ts(words[0].start)
-        end = self._ts(words[-1].end)
-        text = " ".join(w.word.strip() for w in words)
-        text = self._escape(text)
+    def _event(self, group: List[Word]) -> str:
+        start = self._ts(group[0].start)
+        end = self._ts(group[-1].end)
+        text = " ".join((w.text or "").strip() for w in group)
+        text = text.replace("\n", " ").replace("{", "\\{").replace("}", "\\}")
         return f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}"
 
-    def _from_segments(self, segments: list) -> List[str]:
-        events: list[str] = []
+    def _from_segments(self, segments) -> List[str]:
+        events = []
         for seg in segments:
-            text = self._wrap(seg.text.strip())
+            text = (getattr(seg, "text", None) or "").strip()
             if not text:
                 continue
-            events.append(f"Dialogue: 0,{self._ts(seg.start)},{self._ts(seg.end)},Default,,0,0,0,,{self._escape(text)}")
+            start = self._ts(getattr(seg, "start", 0.0))
+            end = self._ts(getattr(seg, "end", getattr(seg, "start", 0.0) + 2.0))
+            text = text.replace("\n", " ").replace("{", "\\{").replace("}", "\\}")
+            events.append(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}")
         return events
 
     def _from_plain_text(self, text: str, duration: float) -> List[str]:
         words = text.split()
         if not words:
             return []
-        n = len(words)
-        chunk_size = max(1, self.max_chars_per_line // 6)
-        events: list[str] = []
-        for i in range(0, n, chunk_size):
-            chunk = words[i : i + chunk_size]
-            t0 = duration * i / n
-            t1 = duration * min(i + chunk_size, n) / n
-            events.append(f"Dialogue: 0,{self._ts(t0)},{self._ts(t1)},Default,,0,0,0,,{self._escape(' '.join(chunk))}")
+        n = max(1, len(words) // 8)
+        chunk_size = max(1, len(words) // n)
+        events = []
+        t = 0.0
+        step = duration / max(1, (len(words) + chunk_size - 1) // chunk_size)
+        for i in range(0, len(words), chunk_size):
+            chunk = " ".join(words[i : i + chunk_size])
+            start, end = self._ts(t), self._ts(min(duration, t + step))
+            chunk = chunk.replace("{", "\\{").replace("}", "\\}")
+            events.append(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{chunk}")
+            t += step
         return events
-
-    def _wrap(self, text: str) -> str:
-        words = text.split()
-        lines: list[str] = []
-        current: list[str] = []
-        count = 0
-        for w in words:
-            if count + len(w) + 1 > self.max_chars_per_line and current:
-                lines.append(" ".join(current))
-                current = [w]
-                count = len(w)
-            else:
-                current.append(w)
-                count += len(w) + 1
-        if current:
-            lines.append(" ".join(current))
-        return "\\N".join(lines)
 
     @staticmethod
     def _ts(seconds: float) -> str:
         if seconds < 0:
-            seconds = 0
+            seconds = 0.0
         h = int(seconds // 3600)
         m = int((seconds % 3600) // 60)
         s = int(seconds % 60)
-        cs = int((seconds % 1) * 100)
+        cs = int((seconds - int(seconds)) * 100)
         return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
-
-    @staticmethod
-    def _escape(text: str) -> str:
-        text = text.replace("\n", "\\N")
-        text = re.sub(r"[{}]", "", text)
-        return text

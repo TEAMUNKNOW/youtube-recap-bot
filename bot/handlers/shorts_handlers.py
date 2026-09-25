@@ -33,7 +33,7 @@ def register_shorts_handlers(app:Client):
                 if not p or p.user_id!=(await ensure_user(uid)).id: await message.reply_text("Project not found."); raise StopPropagation
                 p.clip_duration=value
             getattr(client,"shorts_sessions",{}).pop(uid,None)
-            await message.reply_text(f"⏱️ Custom target duration set to {value}s.")
+            await message.reply_text(f"⏱️ Custom target duration set to {value}s.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⚙️ Settings",callback_data=f"sf:project:{p.id}")],[InlineKeyboardButton("◀️ Back to Shorts",callback_data="sf:menu")]]))
             raise StopPropagation
         if message.text and not (m:=URL_RE.search(message.text.strip())): return
         user=await ensure_user(uid); settings=get_settings()
@@ -50,5 +50,5 @@ def register_shorts_handlers(app:Client):
             async with get_session() as s:
                 p=await s.get(ShortsProject,pid); p.source_file=str(path)
         getattr(client,"shorts_sessions",{}).pop(uid,None)
-        await message.reply_text(f"🎬 <b>Shorts Project #{pid}</b> created.\\n\\nBefore processing, confirm that you have the rights or permission to upload and repurpose this content.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ I have the rights / permission",callback_data=f"sf:ack:{pid}")],[InlineKeyboardButton("◀️ Back",callback_data="sf:back")]]))
+        await message.reply_text(f"🎬 <b>Shorts Project #{pid}</b> created.\\n\\nBefore processing, confirm that you have the rights or permission to upload and repurpose this content.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ I have the rights / permission",callback_data=f"sf:ack:{pid}")],[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]]))
         raise StopPropagation

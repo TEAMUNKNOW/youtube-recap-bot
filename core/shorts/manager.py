@@ -50,11 +50,17 @@ class ShortsManager:
             existing=(await s.execute(select(ShortClip.id).where(ShortClip.project_id==pid).limit(1))).scalar_one_or_none()
             if existing is not None:
                 p.status=ShortsProjectStatus.MANIFEST_READY
-                source=Path(p.source_file)
+                source=Path(p.source_file) if p.source_file else None
                 ws=Path(p.workspace_path)
-                await self.process(pid)
-                return
-            p.status=ShortsProjectStatus.ANALYZING; ws=Path(p.workspace_path); ws.mkdir(parents=True,exist_ok=True); source=Path(p.source_file) if p.source_file else None; url=p.source_url
+                resume=True
+            else:
+                resume=False
+                p.status=ShortsProjectStatus.ANALYZING; ws=Path(p.workspace_path); ws.mkdir(parents=True,exist_ok=True); source=Path(p.source_file) if p.source_file else None; url=p.source_url
+        if resume:
+            if source is None or not source.exists():
+                raise RuntimeError("Shorts manifest exists but source media is missing")
+            await self.process(pid)
+            return
         if source is None:
             source=await Downloader(self.settings).download(url,ws,max_filesize_bytes=int(self.settings.shorts_max_input_size_gb*1024**3))
         info=await probe(source)
@@ -116,7 +122,8 @@ class ShortsManager:
                 dur=await self.render.render(source,c.source_start,c.source_end,out,p.playback_speed,"smart")
             async with get_session() as s:
                 c=await s.get(ShortClip,cid); c.local_path=str(out); c.actual_duration=dur; c.status=ShortsClipStatus.RENDERED
-            p=await s.get(ShortsProject,pid); p.processed_parts+=1
+                p=await s.get(ShortsProject,pid)
+                if p: p.processed_parts+=1
         async with get_session() as s:
             c=await s.get(ShortClip,cid); p=await s.get(ShortsProject,pid)
             if c.title is None:
@@ -128,7 +135,11 @@ class ShortsManager:
                             row=json.loads(line)
                             if float(row["end"])>=c.source_start and float(row["start"])<=c.source_end:
                                 lines.append(row["text"])
-                meta=await ShortsMetadata(self.llm).generate(" ".join(lines),"Source video",c.part_number,c.chapter)
+                try:
+                    meta=await ShortsMetadata(self.llm).generate(" ".join(lines),"Source video",c.part_number,c.chapter)
+                except Exception as exc:
+                    logger.warning("[SHORTS] metadata fallback project=%s part=%s: %s",pid,c.part_number,exc)
+                    meta={"title":f"Source Video | Part {c.part_number}","description":f"Part {c.part_number} of the source video.","tags":[],"hashtags":["#Shorts"]}
                 c.title=meta["title"]; c.description=meta["description"]; c.tags=meta["tags"]; c.hashtags=meta["hashtags"]
         async with get_session() as s:
             c=await s.get(ShortClip,cid); q=await s.execute(select(YouTubeAccount).where(YouTubeAccount.user_id==(await s.get(ShortsProject,pid)).user_id,YouTubeAccount.revoked_at.is_(None))); account=q.scalars().first()

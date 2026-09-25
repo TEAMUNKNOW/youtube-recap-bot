@@ -73,6 +73,7 @@ class Application:
 
         self.bot.queue_manager = self.queue  # type: ignore[attr-defined]
         self.bot.app_settings = self.settings  # type: ignore[attr-defined]
+        self.bot.user_client = self.user_client  # type: ignore[attr-defined]
 
         register_all(self.bot)
 

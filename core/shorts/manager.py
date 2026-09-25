@@ -114,7 +114,10 @@ class ShortsManager:
         async with get_session() as s:
             c=await s.get(ShortClip,cid); q=await s.execute(select(YouTubeAccount).where(YouTubeAccount.user_id==(await s.get(ShortsProject,pid)).user_id,YouTubeAccount.revoked_at.is_(None))); account=q.scalars().first()
             if account and c.local_path:
-                sched=ShortsScheduler(p.timezone).slots(None,1,p.daily_limit)[0]; c.scheduled_at=sched; c.status=ShortsClipStatus.UPLOADING
+                q2=await s.execute(select(ShortClip.scheduled_at).where(ShortClip.project_id==pid,ShortClip.scheduled_at.is_not(None)).order_by(ShortClip.scheduled_at.desc()).limit(1))
+                last=q2.scalar_one_or_none()
+                sched=ShortsScheduler(p.timezone).slots(last,1,p.daily_limit)[0]
+                c.scheduled_at=sched; c.status=ShortsClipStatus.UPLOADING
             else: return
         try:
             async with get_session() as s: c=await s.get(ShortClip,cid); p=await s.get(ShortsProject,pid); q=await s.execute(select(YouTubeAccount).where(YouTubeAccount.user_id==p.user_id,YouTubeAccount.revoked_at.is_(None))); account=q.scalars().first()

@@ -73,6 +73,28 @@ class Settings(BaseSettings):
     peak_start: str = Field(default="18:00")
     peak_end: str = Field(default="21:00")
 
+
+    # Autonomous Shorts Factory
+    shorts_enabled: bool = Field(default=True)
+    shorts_default_duration: int = Field(default=60, ge=30, le=180)
+    shorts_default_speed: float = Field(default=1.5, ge=0.75, le=2.0)
+    shorts_default_daily_limit: int = Field(default=3, ge=1, le=5)
+    shorts_max_daily_limit: int = Field(default=5, ge=1, le=5)
+    shorts_output_width: int = Field(default=1080, ge=320)
+    shorts_output_height: int = Field(default=1920, ge=320)
+    shorts_max_parts: int = Field(default=10000, ge=1, le=10000)
+    shorts_retention_days: int = Field(default=1, ge=0)
+    shorts_auto_best_time: bool = True
+    shorts_default_timezone: str = "Asia/Kolkata"
+    shorts_boundary_tolerance_seconds: float = Field(default=5.0, ge=0, le=30)
+    shorts_render_concurrency: int = Field(default=1, ge=1, le=4)
+    shorts_upload_concurrency: int = Field(default=1, ge=1, le=2)
+    youtube_client_id: Optional[str] = None
+    youtube_client_secret: Optional[str] = None
+    youtube_oauth_redirect_uri: Optional[str] = None
+    shorts_oauth_encryption_key: Optional[str] = None
+    shorts_oauth_state_ttl_seconds: int = Field(default=600, ge=60, le=3600)
+
     proxy_url: Optional[str] = None
     cookie_file: Optional[Path] = None
     po_token: Optional[str] = None

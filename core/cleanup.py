@@ -85,3 +85,30 @@ def check_disk_space(path: Path, min_gb: float) -> bool:
         return free_gb >= min_gb
     except OSError:
         return False
+
+
+class CleanupManager:
+    """Thin wrapper used by Pipeline."""
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+
+    async def clean_workspace(self, workspace: Path) -> None:
+        if workspace is None:
+            return
+        safe_rmtree(Path(workspace), self.settings.workspace_root)
+
+    def clean_task(self, task_id: int, *, preserve_debug: bool = False, debug_paths: Optional[list[Path]] = None) -> None:
+        cleanup_task_workspace(
+            self.settings,
+            task_id,
+            preserve_debug=preserve_debug,
+            debug_paths=debug_paths,
+        )
+
+    def orphans(self, max_age_hours: Optional[int] = None) -> int:
+        hours = max_age_hours or int(self.settings.orphan_cleanup_interval_hours)
+        return cleanup_orphans(self.settings, max_age_hours=hours)
+
+    def disk_ok(self) -> bool:
+        return check_disk_space(self.settings.workspace_root, self.settings.disk_space_min_gb)

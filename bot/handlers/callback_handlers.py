@@ -176,7 +176,34 @@ def register_callback_handlers(app: Client) -> None:
                 await query.answer(f"Sent {sent} raw files")
                 return
             if action == CB_RESULT_RETRY:
-                await query.answer("Retrying is not wired yet; use /cancel and create a new task.", show_alert=True)
+                if task.status != TaskStatus.FAILED:
+                    await query.answer("Retry is available only for failed tasks.", show_alert=True)
+                    return
+                async with get_session() as session:
+                    await session.execute(
+                        update(Task)
+                        .where(Task.id == task_id)
+                        .values(
+                            status=TaskStatus.QUEUED,
+                            ui_state=UIState.QUEUED.value,
+                            progress=0.0,
+                            error_code=None,
+                            error_message=None,
+                            completed_at=None,
+                            heartbeat_at=None,
+                            output_video_path=None,
+                            thumbnail_path=None,
+                            output_size=None,
+                            metadata_json=None,
+                            attempt=Task.attempt + 1,
+                        )
+                    )
+                queue = client.queue_manager  # type: ignore[attr-defined]
+                await queue.enqueue(task_id, priority=task.priority or 2)
+                await query.message.edit_text(
+                    f"🔄 <b>Task #{task_id} queued for retry</b>\\n\\nThe pipeline will start again from the beginning."
+                )
+                await query.answer("Retry queued")
                 return
 
         if action == CB_RIGHTS_ACK:

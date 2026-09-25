@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Coroutine, Optional
 
 from bot.config import Settings
-from bot.database.models import Task, TaskState
+from bot.database.models import Task, TaskStatus
 from bot.exceptions import BotError, InputError
 from core.cleanup import CleanupManager
 from core.llm_agent import LLMAgent
@@ -44,9 +44,10 @@ class Pipeline:
         tid = ctx.task_id
 
         async def stage(name: str, pct: int) -> None:
+            status = TaskStatus[name] if name in TaskStatus.__members__ else TaskStatus.DOWNLOADING
             async with self.session_factory() as session:
                 await session.execute(
-                    update(Task).where(Task.id == tid).values(state=name, progress=pct)
+                    update(Task).where(Task.id == tid).values(status=status, progress=pct)
                 )
                 await session.commit()
             if progress:
@@ -73,12 +74,12 @@ class Pipeline:
                 )
                 await session.commit()
 
-            # Load task row for language / mode
             async with self.session_factory() as session:
                 task = await session.get(Task, tid)
                 if task is None:
                     raise BotError("Task not found")
-                mode = task.mode or "AI_RECAP"
+                mode = (task.mode.value if task.mode else None) or "AI_RECAP"
+                language = task.language or "en"
 
             await stage("EXTRACTING_AUDIO", 15)
             ctx.audio_path = ctx.workspace / "audio.wav"
@@ -91,18 +92,17 @@ class Pipeline:
             ctx.script = await self.llm.generate_recap_script(
                 ctx.transcript.text,
                 duration_seconds=ctx.media_info.duration,
-                language=task.language or "en",
+                language=language,
                 mode=mode,
             )
 
             await stage("TTS", 55)
             ctx.tts_result = await self.tts.synthesize(
                 ctx.script.script,
-                language=task.language or "en",
+                language=language,
                 out_dir=ctx.workspace,
             )
 
-            # Re-script once if narration much shorter/longer than video
             narr_dur = ctx.tts_result.duration
             vid_dur = ctx.media_info.duration
             if abs(narr_dur - vid_dur) > self.settings.av_sync_tolerance_seconds:
@@ -110,12 +110,12 @@ class Pipeline:
                 ctx.script = await self.llm.generate_recap_script(
                     ctx.transcript.text,
                     duration_seconds=vid_dur,
-                    language=task.language or "en",
+                    language=language,
                     mode=mode,
                 )
                 ctx.tts_result = await self.tts.synthesize(
                     ctx.script.script,
-                    language=task.language or "en",
+                    language=language,
                     out_dir=ctx.workspace,
                 )
                 narr_dur = ctx.tts_result.duration
@@ -137,8 +137,7 @@ class Pipeline:
 
             await stage("SUBTITLING", 72)
             ctx.subtitles_path = ctx.workspace / "subtitles.ass"
-            lang = task.language or "en"
-            self.subtitles.font_name = SubtitleEngine.font_for_language(lang)
+            self.subtitles.font_name = SubtitleEngine.font_for_language(language)
             self.subtitles.generate_ass(
                 ctx.transcript,
                 ctx.subtitles_path,
@@ -175,7 +174,7 @@ class Pipeline:
             ctx.seo = await self.llm.generate_seo(
                 ctx.script.script,
                 original_title=ctx.script.title,
-                language=task.language or "en",
+                language=language,
             )
 
             await stage("COMPLETED", 100)
@@ -184,9 +183,9 @@ class Pipeline:
                     update(Task)
                     .where(Task.id == tid)
                     .values(
-                        state=TaskState.COMPLETED.value,
+                        status=TaskStatus.COMPLETED,
                         progress=100,
-                        output_path=str(ctx.output_video_path),
+                        output_video_path=str(ctx.output_video_path),
                         output_size=info.size_bytes,
                     )
                 )

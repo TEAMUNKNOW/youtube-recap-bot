@@ -84,11 +84,11 @@ class Settings(BaseSettings):
     av_sync_tolerance_seconds: float = Field(default=8.0, gt=0)
     words_per_minute: int = Field(default=135, ge=80, le=200)
 
-    export_resolution: str = Field(default="1920x1080")
+    export_resolution: str = Field(default="1280x720")
     export_fps: int = Field(default=30, ge=15, le=60)
-    export_crf: int = Field(default=18, ge=0, le=51)
-    export_preset: str = Field(default="medium")
-    export_audio_bitrate: str = Field(default="192k")
+    export_crf: int = Field(default=20, ge=0, le=51)
+    export_preset: str = Field(default="veryfast")
+    export_audio_bitrate: str = Field(default="128k")
     bgm_volume: float = Field(default=0.12, ge=0.0, le=1.0)
     narration_volume: float = Field(default=1.0, ge=0.0, le=2.0)
 

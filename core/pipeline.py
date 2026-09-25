@@ -259,16 +259,28 @@ class Pipeline:
             await self._stage(task_id, "VALIDATING_OUTPUT", 92)
             info = await self.video.validate_output(ctx.output_video_path)
             sync_diff = narr_dur - float(info.duration or narr_dur)
+            chapter_drifts: list[float] = []
+            chapter_word_counts = list(getattr(ctx.script, "chapter_word_counts", None) or [])
+            chapters = list(getattr(ctx.script, "chapters", None) or [])
+            total_words = max(1, sum(chapter_word_counts))
+            cumulative_words = 0
+            for ch, words in zip(chapters, chapter_word_counts):
+                cumulative_words += words
+                expected_narration_time = narr_dur * cumulative_words / total_words
+                chapter_drifts.append(abs(expected_narration_time - float(ch.start_seconds)))
+            max_chapter_drift = max(chapter_drifts, default=0.0)
             metadata = {
                 "source_duration": vid_dur,
                 "narration_duration": narr_dur,
                 "output_duration": float(info.duration or 0),
                 "sync_offset_seconds": sync_diff,
-                "sync_within_tolerance": abs(sync_diff) <= self.settings.av_sync_tolerance_seconds,
+                "max_chapter_drift_seconds": max_chapter_drift,
+                "sync_within_tolerance": abs(sync_diff) <= self.settings.av_sync_tolerance_seconds
+                    and max_chapter_drift <= max(12.0, self.settings.av_sync_tolerance_seconds),
                 "word_count": int(getattr(ctx.script, "word_count", 0) or len(ctx.script.script.split())),
                 "chapters": [
                     {"title": ch.title, "start_seconds": ch.start_seconds}
-                    for ch in (getattr(ctx.script, "chapters", None) or [])
+                    for ch in chapters
                 ],
                 "key_points": list(getattr(ctx.script, "key_points", None) or []),
                 "raw_files": sorted(p.name for p in ws.iterdir() if p.is_file()),

@@ -16,7 +16,7 @@ from bot.middleware import ensure_user
 logger = logging.getLogger(__name__)
 
 
-def register(app: Client) -> None:
+def register_command_handlers(app: Client) -> None:
     auth = authorized_users_filter(app)
 
     @app.on_message(filters.command("start") & auth)
@@ -60,9 +60,7 @@ def register(app: Client) -> None:
             return
         lines = ["<b>Active tasks</b>"]
         for t in tasks:
-            lines.append(
-                f"#{t.id} {t.status.value} {t.progress:.0f}%"
-            )
+            lines.append(f"#{t.id} {t.status.value} {t.progress:.0f}%")
         await message.reply_text("\n".join(lines))
 
     @app.on_message(filters.command("tasks") & auth)

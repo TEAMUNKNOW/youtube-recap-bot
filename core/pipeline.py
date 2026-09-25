@@ -158,8 +158,9 @@ class Pipeline:
             narr_dur = float(ctx.tts_result.duration or 0)
             vid_dur = float(ctx.media_info.duration or 0)
 
-            # AI recap narration is intentionally shorter than the source video.
-            # Only full-length transformative mode needs duration correction.
+            # AI_RECAP is intentionally shorter than the source. Only transformative
+            # mode requires full-duration alignment; do not blindly re-script based
+            # on a recap-length narration.
             if mode == "TRANSFORMATIVE" and abs(narr_dur - vid_dur) > self.settings.av_sync_tolerance_seconds:
                 logger.warning("Re-scripting due to AV mismatch %.1fs", narr_dur - vid_dur)
                 ctx.script = await self.llm.generate_recap_script(

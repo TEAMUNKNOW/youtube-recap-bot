@@ -53,6 +53,7 @@ class TTSFactory:
         out_dir = Path(out_dir) if out_dir else Path(self.settings.workspace_root)
         out_dir.mkdir(parents=True, exist_ok=True)
         output_path = out_dir / "narration.mp3"
+        # Provider-specific voice IDs must never cross providers.
 
         # Respect the provider selected for this task instead of always using
         # the provider that was created when the application started.

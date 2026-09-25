@@ -41,6 +41,13 @@ async def dispatch(client,query):
     if data=="sf:back":
         await query.message.edit_text("Choose an option from the main menu."); await query.answer(); return
     parts=data.split(":")
+    if len(parts)>=3 and parts[1]=="ack":
+        pid=int(parts[2]); p=await _project(pid,uid)
+        if not p: await query.answer("Project not found",show_alert=True); return
+        async with get_session() as s:
+            p=await s.get(ShortsProject,pid); p.rights_acknowledged=True
+        await query.message.edit_text(f"🎬 <b>Project #{pid}</b>\n\nRights confirmation recorded. Choose how clips should be selected.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎞️ Continuous Series",callback_data=f"sf:mode:{pid}:CONTINUOUS")],[InlineKeyboardButton("🔥 Highlight Clips",callback_data=f"sf:mode:{pid}:HIGHLIGHT")],[InlineKeyboardButton("◀️ Back",callback_data="sf:menu")]]))
+        await query.answer(); return
     if len(parts)>=4 and parts[1]=="mode":
         pid=int(parts[2]); mode=parts[3]; p=await _project(pid,uid)
         if not p: await query.answer("Project not found",show_alert=True); return
@@ -50,6 +57,7 @@ async def dispatch(client,query):
     if len(parts)>=3 and parts[1] in ("start","pause","stop"):
         pid=int(parts[2]); p=await _project(pid,uid)
         if not p: await query.answer("Project not found",show_alert=True); return
+        if parts[1]=="start" and not p.rights_acknowledged: await query.answer("Confirm rights/permission first.",show_alert=True); return
         if parts[1]=="start":
             await client.shorts_manager.start(pid); msg="▶️ Started"
         elif parts[1]=="pause":

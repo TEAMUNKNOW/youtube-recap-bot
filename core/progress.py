@@ -8,7 +8,6 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 STAGE_EMOJI = {
-    "VALIDATING": "🔎",
     "EXTRACTING_AUDIO": "🎧",
     "MUTE_VIDEO": "🔇",
     "MIX_AUDIO": "🎚️",
@@ -19,8 +18,8 @@ STAGE_EMOJI = {
     "SCRIPTING": "🧠",
     "TTS": "🔊",
     "AUDIO_PROCESSING": "🎧",
-    "RENDERING": "🎬",
     "SUBTITLING": "📝",
+    "RENDERING": "🎬",
     "THUMBNAIL": "🖼",
     "SEO": "🏷",
     "VALIDATING": "✅",
@@ -42,8 +41,8 @@ STAGE_ORDER = [
     "TTS",
     "MUTE_VIDEO",
     "MIX_AUDIO",
-    "RENDERING",
     "SUBTITLING",
+    "RENDERING",
     "THUMBNAIL",
     "VALIDATING_OUTPUT",
     "SEO",

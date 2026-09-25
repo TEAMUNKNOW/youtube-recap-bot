@@ -60,12 +60,13 @@ class SubtitleEngine:
     def generate_ass(
         self, transcript: Transcript, output_path: Path, *,
         script_text: Optional[str] = None, use_words: bool = True,
+        duration: Optional[float] = None,
     ) -> Path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         header = self._header()
         events: list[str] = []
         if script_text and not use_words:
-            events = self._from_plain_text(script_text, transcript.duration or 60.0)
+            events = self._from_plain_text(script_text, duration or transcript.duration or 60.0)
         elif use_words and transcript.words:
             events = self._from_words(transcript.words)
         elif transcript.segments:

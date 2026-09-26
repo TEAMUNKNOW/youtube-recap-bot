@@ -23,24 +23,39 @@ def register_command_handlers(app: Client) -> None:
     async def start_cmd(client: Client, message: Message) -> None:
         await ensure_user(message.from_user.id)
         await message.reply_text(
-            "👋 <b>YouTube Recap Bot</b>\n\n"
-            "Send a YouTube URL or upload a video file to begin.\n"
-            "Commands: /status /tasks /logs /cancel /help",
+            "👋 <b>YouTube Recap &amp; Video Automation</b>\n\n"
+            "Send a <b>YouTube URL</b> or <b>upload a video</b> to begin.\n\n"
+            "🎬 AI Recap with narration, subtitles &amp; thumbnail\n"
+            "🎙️ TTS: Edge / Local / OpenAI / OmniVoice (GPU)\n"
+            "📺 Optional YouTube upload after export\n\n"
+            "<b>Commands</b>\n"
+            "/status — active tasks\n"
+            "/tasks — recent history\n"
+            "/logs — errors &amp; status\n"
+            "/youtube — connect Google / YouTube OAuth\n"
+            "/cancel &lt;id&gt; — cancel a task\n"
+            "/help — help center",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🎬 Create Recap", callback_data="menu:create")],
+                [
+                    InlineKeyboardButton("🔗 YouTube URL", callback_data="menu:url"),
+                    InlineKeyboardButton("📤 Upload", callback_data="menu:upload"),
+                ],
+                [
+                    InlineKeyboardButton("📺 Connect YouTube", callback_data="sf:menu"),
+                    InlineKeyboardButton("❓ Help", callback_data="h"),
+                ],
             ]),
         )
 
     @app.on_message(filters.command("help") & auth)
     async def help_cmd(client: Client, message: Message) -> None:
         await message.reply_text(
-            "<b>Help</b>\n"
-            "• Send a YouTube link or upload a video\n"
-            "• Choose mode, TTS, language, export\n"
-            "• /status — active tasks\n"
-            "• /tasks — recent tasks\n"
-            "• /logs — recent task errors\n"
-            "• /cancel &lt;id&gt; — cancel a task\n"
+            "<b>Help</b>\n\n"
+            "1. Send YouTube link or upload video\n"
+            "2. Choose mode → TTS → language → export\n"
+            "3. Wait for processing\n\n"
+            "/status /tasks /logs /youtube /cancel &lt;id&gt;"
         )
 
     @app.on_message(filters.command("status") & auth)
@@ -110,7 +125,6 @@ def register_command_handlers(app: Client) -> None:
 
     @app.on_message(filters.command("logs") & auth)
     async def logs_cmd(client: Client, message: Message) -> None:
-        """Show recent task errors / status."""
         user = await ensure_user(message.from_user.id)
         settings = None
         try:
@@ -149,3 +163,50 @@ def register_command_handlers(app: Client) -> None:
         if len(text) > 3500:
             text = text[:3490] + "\n…"
         await message.reply_text(text)
+
+    @app.on_message(filters.command(["youtube", "ytconnect", "connect"]) & auth)
+    async def youtube_cmd(client: Client, message: Message) -> None:
+        """Start Google OAuth to connect a YouTube channel."""
+        from bot.config import get_settings
+        settings = get_settings()
+        user = await ensure_user(message.from_user.id)
+
+        if not settings.youtube_client_id and not settings.youtube_client_secrets:
+            await message.reply_text(
+                "⚠️ <b>YouTube OAuth not configured</b>\n\n"
+                "Railway Variables mein set karo:\n"
+                "• <code>YOUTUBE_CLIENT_ID</code>\n"
+                "• <code>YOUTUBE_CLIENT_SECRET</code>\n"
+                "• <code>YOUTUBE_OAUTH_REDIRECT_URI</code> "
+                "(e.g. https://YOUR-APP.up.railway.app/oauth/youtube/callback)\n"
+                "• <code>SHORTS_OAUTH_ENCRYPTION_KEY</code> "
+                "(python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\")\n\n"
+                "Google Cloud → OAuth Web client + YouTube Data API v3 enable."
+            )
+            return
+
+        if not settings.youtube_oauth_redirect_uri:
+            await message.reply_text(
+                "Set <code>YOUTUBE_OAUTH_REDIRECT_URI</code> to your public HTTPS callback URL."
+            )
+            return
+
+        try:
+            from core.shorts.oauth import YouTubeOAuth
+            oauth = YouTubeOAuth(settings)
+            url = await oauth.authorization_url(user.id)
+        except Exception as exc:
+            logger.exception("YouTube OAuth URL failed")
+            await message.reply_text(f"OAuth start failed: <code>{exc}</code>")
+            return
+
+        await message.reply_text(
+            "📺 <b>Connect YouTube</b>\n\n"
+            "1. Neeche button dabao\n"
+            "2. Google account se login + Allow\n"
+            "3. Redirect ke baad channel link ho jayega\n\n"
+            "Phir export target = YouTube / Both choose kar sakte ho.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔗 Open Google Login", url=url)],
+            ]),
+        )

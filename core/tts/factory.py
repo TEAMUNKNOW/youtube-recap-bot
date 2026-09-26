@@ -38,14 +38,18 @@ def create_tts_provider(settings: Settings, provider: Optional[str] = None) -> B
     if name in ("local", "offline", "espeak", "espeak-ng"):
         return LocalTTSProvider()
     if name in ("omnivoice", "omni_voice", "omni"):
+        instruct = settings.omnivoice_instruct or getattr(settings, "omnivoice_default_instruct", None)
         return OmniVoiceProvider(
             model_id=settings.omnivoice_model,
             device=settings.omnivoice_device,
             dtype=settings.omnivoice_dtype,
             ref_audio=settings.omnivoice_ref_audio,
             ref_text=settings.omnivoice_ref_text,
-            instruct=settings.omnivoice_instruct,
+            instruct=instruct,
             num_steps=settings.omnivoice_num_steps,
+            allow_cpu=bool(getattr(settings, "omnivoice_allow_cpu", False)),
+            default_language="hi",
+            default_gender=getattr(settings, "omnivoice_gender", "male") or "male",
         )
 
     raise TTSError(f"Unknown TTS provider: {name}", retryable=False)
@@ -93,7 +97,9 @@ class TTSFactory:
         if provider == "elevenlabs":
             return self.settings.elevenlabs_voice_id
         if provider == "omnivoice":
-            return requested_voice or "omnivoice"
+            if requested_voice:
+                return requested_voice
+            return "hi-adult-male"
         return requested_voice
 
     async def synthesize(
@@ -140,7 +146,7 @@ class TTSFactory:
                 last_error = exc
                 logger.warning(
                     "TTS provider=%s failed retryable=%s: %s",
-                    provider_name, exc.retryable, exc,
+                    provider_name, exc.retryable, exp if False else exc,
                 )
                 continue
             except Exception as exc:

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def register_command_handlers(app: Client) -> None:
-    auth = authorized_users_filter(app)
+    auth = authorized_users_filter()
 
     @app.on_message(filters.command("start") & auth)
     async def start_cmd(client: Client, message: Message) -> None:

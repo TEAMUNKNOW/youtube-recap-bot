@@ -102,7 +102,6 @@ class VideoEngine:
         return out_wav
 
     async def fit_audio_duration(self, audio: Path, output: Path, target_duration: float) -> Path:
-        """Time-stretch narration mildly so long-form output covers the full source."""
         if target_duration <= 0 or not audio.exists():
             return audio
         current = await self._probe_audio_duration(audio)
@@ -260,7 +259,7 @@ class VideoEngine:
                 except FFmpegError as exc2:
                     raise FFmpegError(
                         f"render_final failed; subtitle-free retry also failed: {exc2}"
-                    ) from exp2
+                    ) from exc2
             raise
         return output
 

@@ -95,17 +95,17 @@ class Application:
                 logger.warning("User client failed to start: %s", exc)
                 self.user_client = None
 
-        # Railway public HTTPS hits $PORT — bind OAuth HTTP there.
-        if self.settings.youtube_oauth_redirect_uri or self.settings.shorts_enabled:
-            import os
-            import uvicorn
-            oauth_app = create_oauth_app(self.settings, self.bot)
-            port = int(os.environ.get("PORT") or self.settings.shorts_oauth_bind_port or 8080)
-            host = self.settings.shorts_oauth_bind_host or "0.0.0.0"
-            config = uvicorn.Config(oauth_app, host=host, port=port, log_level="warning")
-            self._oauth_server = uvicorn.Server(config)
-            self._oauth_task = asyncio.create_task(self._oauth_server.serve())
-            logger.info("OAuth HTTP server listening on %s:%s", host, port)
+        # ALWAYS bind HTTP on Railway $PORT so public URL / health / OAuth work.
+        # Without a process on $PORT, Railway returns timeout / 502.
+        import os
+        import uvicorn
+        oauth_app = create_oauth_app(self.settings, self.bot)
+        port = int(os.environ.get("PORT") or self.settings.shorts_oauth_bind_port or 8080)
+        host = self.settings.shorts_oauth_bind_host or "0.0.0.0"
+        config = uvicorn.Config(oauth_app, host=host, port=port, log_level="warning")
+        self._oauth_server = uvicorn.Server(config)
+        self._oauth_task = asyncio.create_task(self._oauth_server.serve())
+        logger.info("HTTP server listening on %s:%s (health + OAuth callback)", host, port)
 
         await self.queue.start()
         recovered = await self.queue.recover_stale_tasks()
@@ -161,7 +161,7 @@ class Application:
                         task.chat_id, task.status_message_id, text
                     )
             except Exception as exc:
-                logger.debug("Status edit failed: %s", exc)
+                logger.debug("Status edit failed: %s", exp)
 
         async def pipeline_notify(stage: str, percent: float, extra: Optional[str]) -> None:
             pass
@@ -193,7 +193,7 @@ class Application:
             if task.thumbnail_path and Path(task.thumbnail_path).exists():
                 await self.bot.send_photo(task.chat_id, task.thumbnail_path)
         except Exception as exc:
-            logger.error("Failed to send output to Telegram: %s", exc)
+            logger.error("Failed to send output to Telegram: %s", exp)
             try:
                 await self.bot.send_message(
                     task.chat_id,
@@ -209,8 +209,8 @@ class Application:
                 cleanup_orphans(self.settings, max_age_hours=24)
             except asyncio.CancelledError:
                 break
-            except Exception as exc:
-                logger.warning("Orphan cleanup error: %s", exc)
+            except Exception as exp:
+                logger.warning("Orphan cleanup error: %s", exp)
 
     async def stop(self) -> None:
         logger.info("Shutting down…")

@@ -1,4 +1,7 @@
-# Optional GPU TTS worker dependencies for OmniVoice.
-# Install these only on the dedicated OmniVoice worker.
-omnivoice
+# Optional GPU TTS stack — install on CUDA host only (NOT on Railway free CPU)
+# pip install -r requirements-omnivoice.txt
+torch>=2.2.0
+torchaudio>=2.2.0
+omnivoice>=0.1.0
 soundfile>=0.12.1
+numpy>=1.26.0

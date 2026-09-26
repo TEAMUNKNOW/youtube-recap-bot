@@ -16,9 +16,9 @@ from core.retry import retry_async
 logger = logging.getLogger(__name__)
 
 GROQ_FREE_MODELS: Sequence[str] = (
+    "qwen/qwen3.8-27b",
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
-    "qwen/qwen3.8-27b",
 )
 
 
@@ -64,7 +64,6 @@ class LLMAgent:
         language: str = "en",
         mode: str = "AI_RECAP",
     ) -> RecapScript:
-        # Old 1800-word cap crushed 30min-7hr videos into ~7 min output.
         wpm = max(100, min(160, int(self.settings.words_per_minute)))
         source_min = max(0.5, duration_seconds / 60.0)
         if mode == "TRANSFORMATIVE":
@@ -173,22 +172,19 @@ class LLMAgent:
             target_words = max(120, int(span / 60.0 * target_wpm * 0.9))
             system = (
                 "You are a cinematic documentary/story recap narrator. Rewrite the supplied "
-                "part as engaging narration that explains what happens, why it matters, "
-                "and the important visual/story context. Do not fabricate facts or dialogue. "
-                "Keep continuity with the supplied part. Output valid JSON only."
+                "part as engaging narration. Do not fabricate facts. Output valid JSON only."
             )
             user = (
                 f"Language: {lang_name}. Part {index}/{len(chunks)}. Source time: {start_s:.1f}-{end_s:.1f}s.\n"
                 f"Target narration: about {target_words} words.\n"
-                f"Transcript for this part:\n{self._prepare_transcript(chunk_text, 14000)}\n\n"
-                "Return JSON with keys: title, script, word_count, tone, chapters, key_points. "
-                "The script must be natural spoken narration, not an article."
+                f"Transcript for this part:\n{self._prepare_transcript(chunk_text, 8000)}\n\n"
+                "Return JSON with keys: title, script, word_count, tone, chapters, key_points."
             )
             raw = await self._complete(system, user)
             data = self._extract_json(raw)
             part = RecapScript.model_validate(data)
             if not part.script.strip():
-                raise LLMError(f"Empty narration generated for part {index}", retryable=True)
+                raise LLMError(f"Empty narration for part {index}", retryable=True)
             titles.append(part.title.strip())
             scripts.append(part.script.strip())
             chapters.append(Chapter(title=part.title.strip() or f"Part {index}", start_seconds=start_s))
@@ -213,15 +209,13 @@ class LLMAgent:
         language: str = "en",
     ) -> SEOResult:
         system = (
-            "You are a YouTube SEO specialist. Generate accurate, non-fabricated "
-            "metadata. Titles under 60 characters. Output valid JSON only."
+            "You are a YouTube SEO specialist. Titles under 60 characters. Output valid JSON only."
         )
         user = (
             f"Language: {language}\n"
             f"Original title hint: {original_title or 'N/A'}\n\n"
             f"Script / content:\n{script[:8000]}\n\n"
-            "Return JSON: titles (array of 3 strings), description (string with synopsis, "
-            "chapters if any, keywords, disclaimer), tags (array), hashtags (array), "
+            "Return JSON: titles (array of 3 strings), description, tags, hashtags, "
             "chapters (array of {title, start_seconds})."
         )
         raw = await self._complete(system, user)
@@ -229,11 +223,8 @@ class LLMAgent:
         try:
             seo = SEOResult.model_validate(data)
         except PydanticValidationError:
-            repair = await self._complete(
-                system, f"Fix into valid SEO JSON:\n{raw[:4000]}"
-            )
+            repair = await self._complete(system, f"Fix into valid SEO JSON:\n{raw[:4000]}")
             seo = SEOResult.model_validate(self._extract_json(repair))
-
         seo.titles = [t[:60].strip() for t in seo.titles if t.strip()][:3]
         if not seo.titles:
             raise LLMError("No valid titles generated", retryable=True)
@@ -251,36 +242,19 @@ class LLMAgent:
 
     async def _complete(self, system: str, user: str) -> str:
         provider = (self.settings.llm_provider or "groq").lower()
-
-        if provider == "groq" or (
-            provider not in ("openai", "gemini") and self.settings.groq_api_key
-        ):
-            if self.settings.groq_api_key:
-                return await self._groq_complete_with_fallback(system, user)
-
+        if self.settings.groq_api_key and provider in ("groq", "auto", ""):
+            return await self._groq_complete_with_fallback(system, user)
         if provider == "openai" and self.settings.openai_api_key:
-            return await retry_async(
-                self._openai_complete, max_attempts=2, system=system, user=user
-            )
+            return await retry_async(self._openai_complete, max_attempts=2, system=system, user=user)
         if provider == "gemini" and self.settings.gemini_api_key:
-            return await retry_async(
-                self._gemini_complete, max_attempts=2, system=system, user=user
-            )
-
+            return await retry_async(self._gemini_complete, max_attempts=2, system=system, user=user)
         if self.settings.groq_api_key:
             return await self._groq_complete_with_fallback(system, user)
         if self.settings.openai_api_key:
-            return await retry_async(
-                self._openai_complete, max_attempts=2, system=system, user=user
-            )
+            return await retry_async(self._openai_complete, max_attempts=2, system=system, user=user)
         if self.settings.gemini_api_key:
-            return await retry_async(
-                self._gemini_complete, max_attempts=2, system=system, user=user
-            )
-        raise LLMError(
-            "No LLM API key configured (set GROQ_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY)",
-            retryable=False,
-        )
+            return await retry_async(self._gemini_complete, max_attempts=2, system=system, user=user)
+        raise LLMError("No LLM API key configured", retryable=False)
 
     async def _groq_complete_with_fallback(self, system: str, user: str) -> str:
         models = self._model_candidates()
@@ -291,47 +265,23 @@ class LLMAgent:
                 logger.info("Groq LLM success with model=%s", model)
                 return text
             except LLMError as exc:
-                last_err = exp if False else exc
                 last_err = exc
                 msg = str(exc).lower()
-                if any(
-                    x in msg
-                    for x in (
-                        "404",
-                        "model_not_found",
-                        "does not exist",
-                        "do not have access",
-                        "not available",
-                        "invalid_request",
-                    )
-                ):
-                    logger.warning("Groq model %s unavailable, trying next: %s", model, exc)
-                    continue
-                if "rate limited" in msg or "server error" in msg or "429" in msg or "503" in msg:
-                    logger.warning("Groq model %s temporary error, trying next: %s", model, exc)
-                    continue
                 logger.warning("Groq model %s failed, trying next: %s", model, exc)
+                if any(x in msg for x in ("404", "model_not_found", "rate limited", "429", "413", "400", "json")):
+                    continue
                 continue
         if self.settings.openai_api_key:
-            logger.warning("All Groq models failed; falling back to OpenAI")
             try:
-                return await retry_async(
-                    self._openai_complete, max_attempts=2, system=system, user=user
-                )
+                return await retry_async(self._openai_complete, max_attempts=2, system=system, user=user)
             except Exception as exc:
-                last_err = exp
+                last_err = exc
         if self.settings.gemini_api_key:
-            logger.warning("All Groq models failed; falling back to Gemini")
             try:
-                return await retry_async(
-                    self._gemini_complete, max_attempts=2, system=system, user=user
-                )
+                return await retry_async(self._gemini_complete, max_attempts=2, system=system, user=user)
             except Exception as exc:
-                last_err = exp
-        raise LLMError(
-            f"All configured LLM providers failed. Last error: {last_err}",
-            retryable=True,
-        ) from last_err
+                last_err = exc
+        raise LLMError(f"All LLM providers failed: {last_err}", retryable=True) from last_err
 
     async def _groq_complete_one(self, system: str, user: str, model: str) -> str:
         import httpx
@@ -349,24 +299,22 @@ class LLMAgent:
             ],
             "temperature": 0.7,
             "response_format": {"type": "json_object"},
-            "reasoning_effort": "low",
         }
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, headers=headers, json=body)
         if resp.status_code == 429:
             raise LLMError(f"Groq rate limited ({model})", retryable=True)
+        if resp.status_code == 413:
+            raise LLMError(f"Groq payload too large ({model})", retryable=True)
         if resp.status_code >= 500:
             raise LLMError(f"Groq server error {resp.status_code} ({model})", retryable=True)
         if resp.status_code != 200:
-            raise LLMError(
-                f"Groq error {resp.status_code} ({model}): {resp.text[:300]}",
-                retryable=False,
-            )
+            raise LLMError(f"Groq error {resp.status_code} ({model}): {resp.text[:300]}", retryable=False)
         data = resp.json()
         try:
             return data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise LLMError(f"Malformed Groq response ({model})", retryable=True) from exp
+            raise LLMError(f"Malformed Groq response ({model})", retryable=True) from exc
 
     async def _gemini_complete(self, system: str, user: str) -> str:
         import httpx
@@ -379,10 +327,7 @@ class LLMAgent:
         body = {
             "system_instruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
-            "generationConfig": {
-                "temperature": 0.7,
-                "responseMimeType": "application/json",
-            },
+            "generationConfig": {"temperature": 0.7, "responseMimeType": "application/json"},
         }
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, json=body)
@@ -396,7 +341,7 @@ class LLMAgent:
         try:
             return data["candidates"][0]["content"]["parts"][0]["text"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise LLMError("Malformed Gemini response", retryable=True) from exp
+            raise LLMError("Malformed Gemini response", retryable=True) from exc
 
     async def _openai_complete(self, system: str, user: str) -> str:
         import httpx
@@ -427,10 +372,10 @@ class LLMAgent:
         try:
             return data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise LLMError("Malformed OpenAI response", retryable=True) from exp
+            raise LLMError("Malformed OpenAI response", retryable=True) from exc
 
     @staticmethod
-    def _prepare_transcript(text: str, max_chars: int = 24000) -> str:
+    def _prepare_transcript(text: str, max_chars: int = 12000) -> str:
         text = text.strip()
         if len(text) <= max_chars:
             return text
@@ -438,9 +383,9 @@ class LLMAgent:
         middle_start = max(0, (len(text) - third) // 2)
         return (
             text[:third]
-            + "\n\n[...middle of transcript omitted for context...]\n\n"
-            + text[middle_start:middle_start + third]
-            + "\n\n[...later transcript omitted for context...]\n\n"
+            + "\n\n[...middle omitted...]\n\n"
+            + text[middle_start : middle_start + third]
+            + "\n\n[...later omitted...]\n\n"
             + text[-third:]
         )
 

@@ -178,9 +178,6 @@ class VideoEngine:
         output.parent.mkdir(parents=True, exist_ok=True)
         await self.runner.detect_hw()
         encoder = self._video_encoder_args()
-        # CPU-only Railway containers can be OOM-killed when a 720p source is
-        # accidentally rendered into a 1080p canvas. Bound the render size to
-        # 1280x720 regardless of a stale EXPORT_RESOLUTION environment variable.
         try:
             requested_w, requested_h = (int(x) for x in self.settings.export_resolution.split("x", 1))
         except (ValueError, AttributeError):
@@ -195,14 +192,27 @@ class VideoEngine:
             ass_esc = str(subtitles).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
             vf_parts.append(f"ass='{ass_esc}'")
         vf = ",".join(vf_parts)
+
+        ratio = float(getattr(self.settings, "recap_duration_ratio", 1.0) or 1.0)
+        match_source = ratio >= 0.9
         if video_duration is not None and narration_duration is not None:
             diff = narration_duration - video_duration
             if abs(diff) > self.settings.av_sync_tolerance_seconds:
-                logger.info("Source/narration duration differ by %.1fs; output will follow narration duration", diff)
+                logger.info(
+                    "Source/narration duration differ by %.1fs; match_source=%s ratio=%.2f",
+                    diff, match_source, ratio,
+                )
 
         def build_args(vf_str: str, enc: list) -> list:
-            args = [
-                "-fflags", "+genpts",
+            loop_video = (
+                bool(narration_duration)
+                and bool(video_duration)
+                and narration_duration > video_duration * 1.05
+            )
+            args = ["-fflags", "+genpts"]
+            if loop_video:
+                args += ["-stream_loop", "-1"]
+            args += [
                 "-i", str(muted_video),
                 "-i", str(mixed_audio),
                 "-map", "0:v:0",
@@ -214,10 +224,14 @@ class VideoEngine:
                 "-map_metadata", "-1",
                 "-avoid_negative_ts", "make_zero",
             ]
-            # Recaps intentionally use a short narration over the source video.
-            # Explicitly limit output duration so broken/large source timestamps
-            # cannot make -shortest wait indefinitely.
-            if narration_duration and narration_duration > 0:
+            if match_source and video_duration and video_duration > 0:
+                if narration_duration and narration_duration > video_duration * 1.05:
+                    args += ["-t", f"{narration_duration:.3f}"]
+                    logger.info("Output follows narration %.1fs (video looped)", narration_duration)
+                else:
+                    args += ["-t", f"{video_duration:.3f}"]
+                    logger.info("Output duration locked to source %.1fs", video_duration)
+            elif narration_duration and narration_duration > 0:
                 args += ["-t", f"{narration_duration:.3f}"]
             else:
                 args += ["-shortest"]
@@ -237,15 +251,8 @@ class VideoEngine:
                     return output
                 except FFmpegError as exc2:
                     exc, msg = exc2, str(exc2).lower()
-            # A subtitle filter can fail for many reasons (fontconfig, libass,
-            # malformed glyphs, or a bad ASS event). The video itself should still
-            # be recoverable, so retry once without burn-in before failing the task.
             if subtitles and Path(subtitles).exists() and "ass=" in vf:
                 logger.warning("Final render failed; retrying once without subtitle burn-in")
-                # Do not split the serialized filter graph on commas: FFmpeg
-                # expressions such as min(iw,1280) and fps=min(30,30) contain
-                # commas themselves. Removing the subtitle stage from the
-                # original list keeps the filter graph syntactically intact.
                 vf_nosub = ",".join(p for p in vf_parts if not p.startswith("ass="))
                 try:
                     await self.runner.run(build_args(vf_nosub, self._video_encoder_args()), label="render_final_nosub")
@@ -253,7 +260,7 @@ class VideoEngine:
                 except FFmpegError as exc2:
                     raise FFmpegError(
                         f"render_final failed; subtitle-free retry also failed: {exc2}"
-                    ) from exc2
+                    ) from exp2
             raise
         return output
 

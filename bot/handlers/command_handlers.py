@@ -5,57 +5,42 @@ from __future__ import annotations
 import logging
 
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
 
 from bot.database.models import Task, TaskStatus
 from bot.database.session import get_session
 from bot.filters import authorized_users_filter
 from bot.middleware import ensure_user
-from bot.states import CB_MENU_HELP
 
 logger = logging.getLogger(__name__)
 
 
 def register_command_handlers(app: Client) -> None:
-    # authorized_users_filter is a factory that takes no arguments.
-    auth = authorized_users_filter()
+    auth = authorized_users_filter(app)
 
     @app.on_message(filters.command("start") & auth)
     async def start_cmd(client: Client, message: Message) -> None:
         await ensure_user(message.from_user.id)
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎬 Create Recap", callback_data="menu:create")],
-            [InlineKeyboardButton("🎬 Shorts Factory", callback_data="sf:menu")],
-            [InlineKeyboardButton("🔗 YouTube URL", callback_data="menu:url"), InlineKeyboardButton("📤 Upload Video", callback_data="menu:upload")],
-            [InlineKeyboardButton("📊 My Tasks", callback_data="menu:tasks"), InlineKeyboardButton("❓ Help", callback_data=CB_MENU_HELP)],
-        ])
         await message.reply_text(
-            "👋 <b>YouTube Recap & Video Automation</b>\n\n"
-            "🎬 Upload a video or send a YouTube URL.\n"
-            "🧠 AI analyzes the story and important scenes.\n"
-            "🎙️ Natural cinematic narration is generated with duration-scaled coverage.\n"
-            "🎞️ Video, narration and subtitles are checked before delivery.\n"
-            "🖼️ Thumbnail is selected from story/chapter moments.\n\n"
-            "Choose an option below to begin.",
-            reply_markup=kb,
+            "👋 <b>YouTube Recap Bot</b>\n\n"
+            "Send a YouTube URL or upload a video file to begin.\n"
+            "Commands: /status /tasks /logs /cancel /help",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🎬 Create Recap", callback_data="menu:create")],
+            ]),
         )
 
     @app.on_message(filters.command("help") & auth)
     async def help_cmd(client: Client, message: Message) -> None:
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎬 How It Works", callback_data="h:how")],
-            [InlineKeyboardButton("🎙️ Voice System", callback_data="h:voice")],
-            [InlineKeyboardButton("🎞️ Scene Sync", callback_data="h:sync")],
-            [InlineKeyboardButton("🖼️ Thumbnail", callback_data="h:thumb")],
-            [InlineKeyboardButton("📦 Output & Raw Files", callback_data="h:out")],
-            [InlineKeyboardButton("⚙️ Settings", callback_data="h:set")],
-        ])
         await message.reply_text(
-            "<b>❓ Help Center</b>\n\n"
-            "The bot converts long-form video into a structured story recap with narration, subtitles, sync checks and a story-based thumbnail.\n\n"
-            "Use the buttons below for details.",
-            reply_markup=kb,
+            "<b>Help</b>\n"
+            "• Send a YouTube link or upload a video\n"
+            "• Choose mode, TTS, language, export\n"
+            "• /status — active tasks\n"
+            "• /tasks — recent tasks\n"
+            "• /logs — recent task errors\n"
+            "• /cancel &lt;id&gt; — cancel a task\n"
         )
 
     @app.on_message(filters.command("status") & auth)
@@ -122,3 +107,45 @@ def register_command_handlers(app: Client) -> None:
             task.error_message = "Cancelled by user"
             await session.commit()
         await message.reply_text(f"Task #{task_id} cancelled.")
+
+    @app.on_message(filters.command("logs") & auth)
+    async def logs_cmd(client: Client, message: Message) -> None:
+        """Show recent task errors / status."""
+        user = await ensure_user(message.from_user.id)
+        settings = None
+        try:
+            from bot.config import get_settings
+            settings = get_settings()
+        except Exception:
+            pass
+        owner_ids = set(getattr(settings, "owner_ids", []) or []) if settings else set()
+        is_owner = message.from_user.id in owner_ids
+
+        async with get_session() as session:
+            q = select(Task).order_by(Task.id.desc()).limit(15 if is_owner else 10)
+            if not is_owner:
+                q = q.where(Task.user_id == user.id)
+            result = await session.execute(q)
+            tasks = result.scalars().all()
+
+        if not tasks:
+            await message.reply_text("No task logs yet.")
+            return
+
+        lines = ["<b>📋 Recent task logs</b>\n"]
+        for t in tasks:
+            st = t.status.value if hasattr(t.status, "value") else str(t.status)
+            err = (t.error_message or t.error_code or "").strip()
+            if len(err) > 120:
+                err = err[:117] + "..."
+            line = f"#{t.id} · <b>{st}</b> · {t.progress:.0f}%"
+            if err:
+                line += f"\n   ⚠️ <code>{err}</code>"
+            elif t.output_video_path:
+                line += " · ✅ output ready"
+            lines.append(line)
+        lines.append("\nUse /status for active tasks, /tasks for history.")
+        text = "\n".join(lines)
+        if len(text) > 3500:
+            text = text[:3490] + "\n…"
+        await message.reply_text(text)

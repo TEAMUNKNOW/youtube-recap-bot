@@ -43,7 +43,7 @@ def create_tts_provider(settings: Settings, provider: Optional[str] = None) -> B
             raise TTSError(
                 "OmniVoice not installed. On GPU host run: pip install torch torchaudio omnivoice soundfile",
                 retryable=False,
-            ) from exc
+            ) from exp
         instruct = getattr(settings, "omnivoice_instruct", None) or getattr(
             settings, "omnivoice_default_instruct", "male, adult, medium pitch"
         )
@@ -122,9 +122,9 @@ class TTSFactory:
         for provider_name in self._provider_order(selected):
             try:
                 active_provider = create_tts_provider(self.settings, provider_name)
-            except TTSError as exc:
-                logger.warning("TTS provider=%s unavailable: %s", provider_name, exc)
-                last_error = exc
+            except TTSError as exp:
+                logger.warning("TTS provider=%s unavailable: %s", provider_name, exp)
+                last_error = exp
                 continue
 
             selected_voice = self._voice_for(provider_name, voice)
@@ -143,16 +143,16 @@ class TTSFactory:
                         provider_name,
                     )
                 return result
-            except TTSError as exc:
-                last_error = exc
+            except TTSError as exp:
+                last_error = exp
                 logger.warning(
                     "TTS provider=%s failed retryable=%s: %s",
                     provider_name,
-                    getattr(exc, "retryable", False),
-                    exc,
+                    getattr(exp, "retryable", False),
+                    exp,
                 )
                 continue
-            except Exception as exc:
+            except Exception as exp:
                 last_error = exp
                 logger.exception("TTS provider=%s unexpected failure", provider_name)
 

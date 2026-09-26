@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     omnivoice_instruct: Optional[str] = Field(default="male, adult, medium pitch")
     omnivoice_num_steps: int = Field(default=20, ge=1)
     omnivoice_default_instruct: Optional[str] = Field(default="male, adult, medium pitch")
+    omnivoice_allow_cpu: bool = Field(default=False)
+    omnivoice_gender: str = Field(default="male")
+    omnivoice_ref_audio: Optional[Path] = None
 
     llm_provider: str = Field(default="groq")
     groq_model: str = Field(default="qwen/qwen3.8-27b")
@@ -98,8 +101,6 @@ class Settings(BaseSettings):
     bgm_volume: float = Field(default=0.15, ge=0.0, le=1.0)
     bgm_directory: Path = Field(default=Path("./data/bgm"))
     font_directory: Path = Field(default=Path("./data/fonts"))
-
-    omnivoice_ref_audio: Optional[Path] = None
 
     orphan_cleanup_enabled: bool = Field(default=True)
     orphan_cleanup_interval_hours: int = Field(default=6, ge=1)

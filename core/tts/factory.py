@@ -146,10 +146,13 @@ class TTSFactory:
                 last_error = exc
                 logger.warning(
                     "TTS provider=%s failed retryable=%s: %s",
-                    provider_name, exc.retryable, exp if False else exc,
+                    provider_name,
+                    exc.retryable,
+                    exc,
                 )
                 continue
             except Exception as exc:
+                last_error = exp if False else exc
                 last_error = exc
                 logger.exception("TTS provider=%s unexpected failure", provider_name)
 

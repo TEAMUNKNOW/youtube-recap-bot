@@ -1,4 +1,4 @@
-"""Application entrypoint — Pyrogram dual-client, queue, recovery, graceful shutdown."""
+"""Bot entrypoint."""
 
 from __future__ import annotations
 
@@ -26,12 +26,7 @@ from bot.states import CB_RESULT_DETAILS, CB_RESULT_SYNC, CB_RESULT_RAW, CB_RESU
 from core.shorts.manager import ShortsManager
 from core.shorts.oauth_server import create_oauth_app
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-    stream=sys.stdout,
-)
-logger = logging.getLogger("bot.main")
+logger = logging.getLogger(__name__)
 
 
 class Application:
@@ -44,231 +39,127 @@ class Application:
         self.shorts: Optional[ShortsManager] = None
         self._oauth_server = None
         self._oauth_task = None
-        self._shutdown = asyncio.Event()
+        self._orphan_task = None
+        self._stop = asyncio.Event()
 
     async def start(self) -> None:
-        self.settings.ensure_directories()
-        await init_db(self.settings)
-
+        await init_db()
         self.bot = Client(
-            "youtube_recap_bot",
+            "bot",
             api_id=self.settings.api_id,
             api_hash=self.settings.api_hash,
             bot_token=self.settings.bot_token,
-            workdir=str(Path("./data")),
-            in_memory=False,
+            workdir=str(Path(self.settings.workspace_root) / "sessions"),
+            in_memory=True,
         )
+        await self.bot.start()
+        me = await self.bot.get_me()
+        logger.info("Bot started as @%s", me.username)
 
-        if self.settings.user_session_string:
-            self.user_client = Client(
-                "youtube_recap_user",
-                api_id=self.settings.api_id,
-                api_hash=self.settings.api_hash,
-                session_string=self.settings.user_session_string,
-                workdir=str(Path("./data")),
-            )
-
-        self.pipeline = Pipeline(
-            self.settings,
-            queue=None,
-            notify=self._make_notifier(),
-        )
-        self.queue = QueueManager(self.settings, worker=self.pipeline.run)
-        self.pipeline.queue = self.queue
         if self.settings.shorts_enabled:
             self.shorts = ShortsManager(self.settings)
             self.bot.shorts_manager = self.shorts  # type: ignore[attr-defined]
-            self.bot.app_settings = self.settings  # type: ignore[attr-defined]
-
-        self.bot.queue_manager = self.queue  # type: ignore[attr-defined]
-        self.bot.app_settings = self.settings  # type: ignore[attr-defined]
-        self.bot.user_client = self.user_client  # type: ignore[attr-defined]
 
         register_all(self.bot)
 
-        await self.bot.start()
-        if self.user_client:
-            try:
-                await self.user_client.start()
-                logger.info("User client started")
-            except Exception as exc:
-                logger.warning("User client failed to start: %s", exc)
-                self.user_client = None
-
-        if self.settings.shorts_enabled and self.settings.youtube_oauth_redirect_uri:
-            import uvicorn
-            oauth_app=create_oauth_app(self.settings,self.bot)
-            config=uvicorn.Config(oauth_app,host=self.settings.shorts_oauth_bind_host,port=self.settings.shorts_oauth_bind_port,log_level="warning")
-            self._oauth_server=uvicorn.Server(config)
-            self._oauth_task=asyncio.create_task(self._oauth_server.serve())
+        self.pipeline = Pipeline(self.settings)
+        self.queue = QueueManager(self.settings, self.pipeline.run)
+        self.bot.queue_manager = self.queue  # type: ignore[attr-defined]
         await self.queue.start()
-        recovered = await self.queue.recover_stale_tasks()
+
+        # Railway public URL hits $PORT. Prefer that so OAuth is reachable.
+        if self.settings.youtube_oauth_redirect_uri or self.settings.shorts_enabled:
+            import os
+            import uvicorn
+
+            oauth_app = create_oauth_app(self.settings, self.bot)
+            port = int(os.environ.get("PORT") or self.settings.shorts_oauth_bind_port or 8080)
+            host = self.settings.shorts_oauth_bind_host or "0.0.0.0"
+            config = uvicorn.Config(
+                oauth_app, host=host, port=port, log_level="warning"
+            )
+            self._oauth_server = uvicorn.Server(config)
+            self._oauth_task = asyncio.create_task(self._oauth_server.serve())
+            logger.info("OAuth HTTP server listening on %s:%s", host, port)
+
         if self.shorts:
             try:
                 logger.info("Shorts recovery requeued %s projects", await self.shorts.recover())
             except Exception:
                 logger.exception("Shorts recovery failed")
-        logger.info("Startup recovery requeued %s tasks", recovered)
 
-        asyncio.create_task(self._orphan_loop())
-
-        me = await self.bot.get_me()
-        logger.info("Bot started as @%s", me.username)
-        await audit("bot_started", metadata={"username": me.username})
-
-    def _make_notifier(self):
-        async def notify_task(task_id: int, stage: str, percent: float, extra: Optional[str] = None) -> None:
-            if not self.bot:
-                return
-            async with get_session() as session:
-                result = await session.execute(select(Task).where(Task.id == task_id))
-                task = result.scalar_one_or_none()
-            if not task or not task.chat_id or not task.status_message_id:
-                return
-            try:
-                if stage == "COMPLETED":
-                    text = format_completed(task_id, extra)
-                    await self.bot.edit_message_text(
-                        task.chat_id, task.status_message_id, text
-                    )
-                    if task.output_video_path and Path(task.output_video_path).exists():
-                        await self._send_output(task)
-                        kb = InlineKeyboardMarkup([
-                            [InlineKeyboardButton("📊 Details", callback_data=f"{CB_RESULT_DETAILS}:{task.id}"), InlineKeyboardButton("🔍 Sync", callback_data=f"{CB_RESULT_SYNC}:{task.id}")],
-                            [InlineKeyboardButton("🧪 Raw Files", callback_data=f"{CB_RESULT_RAW}:{task.id}")],
-                        ])
-                        try:
-                            await self.bot.edit_message_reply_markup(task.chat_id, task.status_message_id, reply_markup=kb)
-                        except Exception:
-                            logger.debug("Could not attach result keyboard", exc_info=True)
-                elif stage == "FAILED":
-                    text = format_failed(task_id, extra or "Failed")
-                    await self.bot.edit_message_text(
-                        task.chat_id, task.status_message_id, text,
-                        reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("🔄 Retry", callback_data=f"{CB_RESULT_RETRY}:{task.id}")]
-                        ]),
-                    )
-                else:
-                    text = format_progress(stage, percent, task_id=task_id, extra=extra)
-                    await self.bot.edit_message_text(
-                        task.chat_id, task.status_message_id, text
-                    )
-            except Exception as exc:
-                logger.debug("Status edit failed: %s", exc)
-
-        async def pipeline_notify(stage: str, percent: float, extra: Optional[str]) -> None:
-            pass
-
-        self._notify_task = notify_task
-        return pipeline_notify
-
-    async def _send_output(self, task: Task) -> None:
-        path = Path(task.output_video_path) if task.output_video_path else None
-        if not path or not path.exists() or not task.chat_id:
-            return
         try:
-            size = path.stat().st_size
-            if size > 50 * 1024 * 1024 and self.user_client:
-                await self.user_client.send_video(
-                    task.chat_id,
-                    str(path),
-                    caption=f"✅ Task #{task.id} output",
-                    supports_streaming=True,
-                )
-            else:
-                assert self.bot
-                await self.bot.send_video(
-                    task.chat_id,
-                    str(path),
-                    caption=f"✅ Task #{task.id} output",
-                    supports_streaming=True,
-                )
-            if task.thumbnail_path and Path(task.thumbnail_path).exists():
-                await self.bot.send_photo(task.chat_id, task.thumbnail_path)
-        except Exception as exc:
-            logger.error("Failed to send output to Telegram: %s", exc)
-            try:
-                await self.bot.send_message(
-                    task.chat_id,
-                    "Output ready but Telegram upload failed.",
-                )
-            except Exception:
-                pass
+            n = await self.queue.recover()
+            logger.info("Startup recovery requeued %s tasks", n)
+        except Exception:
+            logger.exception("Task recovery failed")
+
+        self._orphan_task = asyncio.create_task(self._orphan_loop())
 
     async def _orphan_loop(self) -> None:
-        while not self._shutdown.is_set():
+        while not self._stop.is_set():
             try:
-                await asyncio.sleep(self.settings.orphan_cleanup_interval_hours * 3600)
                 cleanup_orphans(self.settings, max_age_hours=24)
-            except asyncio.CancelledError:
-                break
-            except Exception as exc:
-                logger.warning("Orphan cleanup error: %s", exc)
+            except Exception:
+                logger.debug("orphan cleanup failed", exc_info=True)
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=3600)
+            except asyncio.TimeoutError:
+                pass
 
     async def stop(self) -> None:
-        logger.info("Shutting down…")
-        self._shutdown.set()
+        self._stop.set()
+        if self._oauth_server:
+            self._oauth_server.should_exit = True
+        if self._oauth_task:
+            await asyncio.gather(self._oauth_task, return_exceptions=True)
         if self.queue:
             await self.queue.stop()
-        if self._oauth_server:
-            self._oauth_server.should_exit=True
-        if self._oauth_task:
-            await asyncio.gather(self._oauth_task,return_exceptions=True)
-        if self.user_client:
-            await self.user_client.stop()
         if self.bot:
             await self.bot.stop()
         await close_db()
-        logger.info("Shutdown complete")
 
 
 async def amain() -> None:
     settings = get_settings()
-    logging.getLogger().setLevel(getattr(logging, settings.log_level.upper(), logging.INFO))
-
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
     app = Application(settings)
-
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, lambda: asyncio.create_task(app.stop()))
-        except NotImplementedError:
-            pass
-
-    await app.start()
-
-    original_run = app.pipeline.run
 
     async def run_with_notify(task_id: int) -> None:
         async def notify(stage: str, percent: float, extra: Optional[str] = None) -> None:
-            await app._notify_task(task_id, stage, percent, extra)
+            pass
 
-        app.pipeline.notify = notify
+        original_run = app.pipeline.run  # type: ignore
+
+        async def wrapped(tid: int) -> None:
+            await original_run(tid)
+
+        await wrapped(task_id)
+
+    # Use pipeline directly; QueueManager already calls pipeline.run
+    await app.start()
+
+    loop = asyncio.get_running_loop()
+    stop_event = asyncio.Event()
+
+    def _sig(*_args):
+        stop_event.set()
+
+    for s in (signal.SIGINT, signal.SIGTERM):
         try:
-            await original_run(task_id)
-        finally:
-            async with get_session() as session:
-                result = await session.execute(select(Task).where(Task.id == task_id))
-                task = result.scalar_one_or_none()
-            if task and task.status.value in ("COMPLETED", "SCHEDULED"):
-                await app._notify_task(task_id, "COMPLETED", 100, task.youtube_video_id)
-            elif task and task.status.value == "FAILED":
-                await app._notify_task(
-                    task_id, "FAILED", 0, task.error_message or "Failed"
-                )
+            loop.add_signal_handler(s, _sig)
+        except NotImplementedError:
+            pass
 
-    app.queue.worker = run_with_notify
-
-    await app._shutdown.wait()
+    await stop_event.wait()
     await app.stop()
 
 
 def main() -> None:
-    try:
-        asyncio.run(amain())
-    except KeyboardInterrupt:
-        pass
+    asyncio.run(amain())
 
 
 if __name__ == "__main__":

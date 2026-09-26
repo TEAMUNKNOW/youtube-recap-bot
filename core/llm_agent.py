@@ -56,6 +56,11 @@ class LLMAgent:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
+    def _duration_ratio(self) -> float:
+        """Output narration length as fraction of source. Default 1.0 = same minutes."""
+        r = float(getattr(self.settings, "recap_duration_ratio", 1.0) or 1.0)
+        return max(0.5, min(1.2, r))
+
     async def generate_recap_script(
         self,
         transcript_text: str,
@@ -64,19 +69,13 @@ class LLMAgent:
         language: str = "en",
         mode: str = "AI_RECAP",
     ) -> RecapScript:
-        wpm = max(100, min(160, int(self.settings.words_per_minute)))
+        wpm = max(110, min(145, int(self.settings.words_per_minute)))
         source_min = max(0.5, duration_seconds / 60.0)
-        if mode == "TRANSFORMATIVE":
-            ratio, hard_cap = 0.85, 20000
-        elif source_min <= 20:
-            ratio, hard_cap = 0.70, 16000
-        elif source_min <= 60:
-            ratio, hard_cap = 0.45, 16000
-        elif source_min <= 180:
-            ratio, hard_cap = 0.30, 16000
-        else:
-            ratio, hard_cap = 0.22, 16000
-        target_words = max(120, min(hard_cap, int(source_min * ratio * wpm)))
+        ratio = self._duration_ratio()
+        # Same-length default: ~source_min minutes of spoken audio
+        hard_cap = 60000
+        target_words = max(150, min(hard_cap, int(source_min * ratio * wpm)))
+
         lang_name = {
             "hi": "Hindi",
             "en": "English",
@@ -85,18 +84,20 @@ class LLMAgent:
         }.get(language[:2].lower(), language)
 
         system = (
-            "You are an expert video recap writer. Produce a dramatic, coherent "
-            "recap/commentary script. Do NOT fabricate facts. Preserve important "
-            "plot and context. Cover the full story arc — do not cut long videos "
-            "into a 5-7 minute summary. Output valid JSON only."
+            "You are an expert video narrator. Write a full-length spoken script that "
+            "covers the entire source from start to finish. The spoken length MUST match "
+            "the requested duration — do NOT compress a long video into a short summary. "
+            "Do not fabricate facts. Output valid JSON only."
         )
         user = (
-            f"Video duration: {duration_seconds:.0f} seconds ({source_min:.1f} min).\n"
-            f"Target word count: approximately {target_words} words "
-            f"(aim for this length; do NOT crush long videos into 5-7 minutes).\n"
+            f"Source video duration: {duration_seconds:.0f} seconds ({source_min:.1f} minutes).\n"
+            f"REQUIRED spoken length: about {source_min * ratio:.1f} minutes "
+            f"≈ {target_words} words at ~{wpm} words/min.\n"
+            f"You MUST produce roughly {target_words} words. "
+            f"If the transcript is long, cover every major section in order.\n"
             f"Output language: {lang_name}.\n"
             f"Mode: {mode}.\n\n"
-            f"Transcript:\n{self._prepare_transcript(transcript_text)}\n\n"
+            f"Transcript:\n{self._prepare_transcript(transcript_text, 14000)}\n\n"
             "Return JSON with keys: title (string), script (string, the full narration), "
             "word_count (int), tone (string), chapters (array of {title, start_seconds}), "
             "key_points (array of strings)."
@@ -129,7 +130,8 @@ class LLMAgent:
         mode: str = "AI_RECAP",
     ) -> RecapScript:
         segments = list(getattr(transcript, "segments", None) or [])
-        if not segments or duration_seconds <= 15 * 60:
+        # Chunk any video longer than 12 minutes so each part can hit full length
+        if not segments or duration_seconds <= 12 * 60:
             return await self.generate_recap_script(
                 getattr(transcript, "text", str(transcript)),
                 duration_seconds=duration_seconds,
@@ -137,8 +139,9 @@ class LLMAgent:
                 mode=mode,
             )
 
-        target_wpm = max(110, min(145, self.settings.words_per_minute))
-        chunk_seconds = 480.0
+        target_wpm = max(110, min(145, int(self.settings.words_per_minute)))
+        ratio = self._duration_ratio()
+        chunk_seconds = 420.0  # ~7 min chunks → safer for free LLM token limits
         chunks: list[tuple[float, float, str]] = []
         start = float(getattr(segments[0], "start", 0.0)) if segments else 0.0
         buf: list[str] = []
@@ -151,7 +154,13 @@ class LLMAgent:
                 chunk_start = seg_start
             buf.append(str(getattr(seg, "text", "")).strip())
         if buf:
-            chunks.append((chunk_start, float(getattr(segments[-1], "end", duration_seconds)), " ".join(buf).strip()))
+            chunks.append(
+                (
+                    chunk_start,
+                    float(getattr(segments[-1], "end", duration_seconds)),
+                    " ".join(buf).strip(),
+                )
+            )
 
         if not chunks:
             return await self.generate_recap_script(
@@ -161,23 +170,33 @@ class LLMAgent:
                 mode=mode,
             )
 
-        lang_name = {"hi": "Hindi", "en": "English", "bn": "Bengali", "es": "Spanish"}.get(language[:2].lower(), language)
+        lang_name = {
+            "hi": "Hindi",
+            "en": "English",
+            "bn": "Bengali",
+            "es": "Spanish",
+        }.get(language[:2].lower(), language)
         titles: list[str] = []
         scripts: list[str] = []
         chapters: list[Chapter] = []
         key_points: list[str] = []
         chapter_word_counts: list[int] = []
+
         for index, (start_s, end_s, chunk_text) in enumerate(chunks, 1):
             span = max(30.0, end_s - start_s)
-            target_words = max(120, int(span / 60.0 * target_wpm * 0.9))
+            # Match this chunk's wall-clock length
+            target_words = max(80, int(span / 60.0 * target_wpm * ratio))
             system = (
-                "You are a cinematic documentary/story recap narrator. Rewrite the supplied "
-                "part as engaging narration. Do not fabricate facts. Output valid JSON only."
+                "You are a full-length video narrator. Rewrite this section as spoken "
+                "narration of the SAME duration as the source section. Do not compress. "
+                "Do not fabricate facts. Output valid JSON only."
             )
             user = (
-                f"Language: {lang_name}. Part {index}/{len(chunks)}. Source time: {start_s:.1f}-{end_s:.1f}s.\n"
-                f"Target narration: about {target_words} words.\n"
-                f"Transcript for this part:\n{self._prepare_transcript(chunk_text, 8000)}\n\n"
+                f"Language: {lang_name}. Part {index}/{len(chunks)}. "
+                f"Source time: {start_s:.1f}-{end_s:.1f}s ({span/60:.1f} min).\n"
+                f"REQUIRED narration: about {target_words} words "
+                f"(~{span/60 * ratio:.1f} minutes spoken).\n"
+                f"Transcript for this part:\n{self._prepare_transcript(chunk_text, 9000)}\n\n"
                 "Return JSON with keys: title, script, word_count, tone, chapters, key_points."
             )
             raw = await self._complete(system, user)
@@ -187,7 +206,9 @@ class LLMAgent:
                 raise LLMError(f"Empty narration for part {index}", retryable=True)
             titles.append(part.title.strip())
             scripts.append(part.script.strip())
-            chapters.append(Chapter(title=part.title.strip() or f"Part {index}", start_seconds=start_s))
+            chapters.append(
+                Chapter(title=part.title.strip() or f"Part {index}", start_seconds=start_s)
+            )
             key_points.extend(part.key_points[:8])
             chapter_word_counts.append(len(part.script.split()))
 
@@ -195,7 +216,7 @@ class LLMAgent:
             title=titles[0] if titles else "Video Recap",
             script="\n\n".join(scripts),
             word_count=sum(len(s.split()) for s in scripts),
-            tone="cinematic storyteller",
+            tone="full-length narrator",
             chapters=chapters,
             key_points=key_points[:40],
             chapter_word_counts=chapter_word_counts,
@@ -266,10 +287,7 @@ class LLMAgent:
                 return text
             except LLMError as exc:
                 last_err = exc
-                msg = str(exc).lower()
                 logger.warning("Groq model %s failed, trying next: %s", model, exc)
-                if any(x in msg for x in ("404", "model_not_found", "rate limited", "429", "413", "400", "json")):
-                    continue
                 continue
         if self.settings.openai_api_key:
             try:
@@ -300,7 +318,7 @@ class LLMAgent:
             "temperature": 0.7,
             "response_format": {"type": "json_object"},
         }
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(url, headers=headers, json=body)
         if resp.status_code == 429:
             raise LLMError(f"Groq rate limited ({model})", retryable=True)
@@ -309,7 +327,10 @@ class LLMAgent:
         if resp.status_code >= 500:
             raise LLMError(f"Groq server error {resp.status_code} ({model})", retryable=True)
         if resp.status_code != 200:
-            raise LLMError(f"Groq error {resp.status_code} ({model}): {resp.text[:300]}", retryable=False)
+            raise LLMError(
+                f"Groq error {resp.status_code} ({model}): {resp.text[:300]}",
+                retryable=False,
+            )
         data = resp.json()
         try:
             return data["choices"][0]["message"]["content"]
@@ -327,9 +348,12 @@ class LLMAgent:
         body = {
             "system_instruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
-            "generationConfig": {"temperature": 0.7, "responseMimeType": "application/json"},
+            "generationConfig": {
+                "temperature": 0.7,
+                "responseMimeType": "application/json",
+            },
         }
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(url, json=body)
         if resp.status_code == 429:
             raise LLMError("Gemini rate limited", retryable=True)
@@ -340,8 +364,8 @@ class LLMAgent:
         data = resp.json()
         try:
             return data["candidates"][0]["content"]["parts"][0]["text"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise LLMError("Malformed Gemini response", retryable=True) from exc
+        except (KeyError, IndexError, TypeError) as exp:
+            raise LLMError("Malformed Gemini response", retryable=True) from exp
 
     async def _openai_complete(self, system: str, user: str) -> str:
         import httpx
@@ -360,7 +384,7 @@ class LLMAgent:
             "temperature": 0.7,
             "response_format": {"type": "json_object"},
         }
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(url, headers=headers, json=body)
         if resp.status_code == 429:
             raise LLMError("OpenAI rate limited", retryable=True)
@@ -371,8 +395,8 @@ class LLMAgent:
         data = resp.json()
         try:
             return data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise LLMError("Malformed OpenAI response", retryable=True) from exc
+        except (KeyError, IndexError, TypeError) as exp:
+            raise LLMError("Malformed OpenAI response", retryable=True) from exp
 
     @staticmethod
     def _prepare_transcript(text: str, max_chars: int = 12000) -> str:

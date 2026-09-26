@@ -23,13 +23,13 @@ class Settings(BaseSettings):
     bot_token: str = Field(..., description="Telegram Bot API token")
     api_id: int = Field(..., description="Telegram API ID")
     api_hash: str = Field(..., description="Telegram API hash")
-    user_session_string: Optional[str] = Field(default=None, description="Optional Pyrogram user session string")
+    user_session_string: Optional[str] = Field(default=None)
 
-    owner_ids: str = Field(default="", description="Comma-separated owner Telegram IDs")
-    admin_ids: str = Field(default="", description="Comma-separated admin Telegram IDs")
+    owner_ids: str = Field(default="")
+    admin_ids: str = Field(default="")
 
-    database_url: str = Field(default="sqlite+aiosqlite:///./data/bot.db", description="SQLAlchemy async database URL")
-    workspace_root: Path = Field(default=Path("/tmp/youtube_recap"), description="Root directory for task workspaces")
+    database_url: str = Field(default="sqlite+aiosqlite:///./data/bot.db")
+    workspace_root: Path = Field(default=Path("/tmp/youtube_recap"))
 
     max_concurrent_tasks: int = Field(default=2, ge=1, le=16)
     max_video_duration_minutes: int = Field(default=240, ge=1)
@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     hindi_voice: str = Field(default="hi-IN-MadhurNeural")
     english_voice: str = Field(default="en-US-ChristopherNeural")
     bengali_voice: str = Field(default="bn-IN-TanishaaNeural")
+    spanish_voice: str = Field(default="es-ES-AlvaroNeural")
+    openai_tts_voice: str = Field(default="alloy")
+    omnivoice_model: str = Field(default="facebook/omnilingual-asr-300m")
+    omnivoice_device: str = Field(default="cpu")
+    omnivoice_dtype: str = Field(default="float32")
+    omnivoice_ref_text: Optional[str] = None
+    omnivoice_instruct: Optional[str] = Field(default="male, adult, medium pitch")
+    omnivoice_num_steps: int = Field(default=20, ge=1)
+    omnivoice_default_instruct: Optional[str] = Field(default="male, adult, medium pitch")
 
     llm_provider: str = Field(default="groq")
     groq_model: str = Field(default="qwen/qwen3.8-27b")
@@ -60,12 +69,12 @@ class Settings(BaseSettings):
     gemini_model: str = Field(default="gemini-2.0-flash")
 
     words_per_minute: int = Field(default=135, ge=80, le=200)
-    # 1.0 = output same length as source video (minutes ≈ minutes)
     recap_duration_ratio: float = Field(default=1.0, ge=0.5, le=1.2)
     av_sync_tolerance_seconds: float = Field(default=3.0, ge=0.5)
 
     http_proxy: Optional[str] = None
     https_proxy: Optional[str] = None
+    proxy_url: Optional[str] = None
     cookie_file: Optional[Path] = None
 
     youtube_client_id: Optional[str] = None
@@ -161,5 +170,4 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Cached settings singleton."""
     return Settings()
